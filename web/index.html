@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CareCircle · Alexa+ that remembers</title>
+<meta name="description" content="A self-hosted MCP server that gives Alexa+ a memory for elder care: medicines, check-ins, refills and family alerts.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,650;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --page:#f6f2ec; --ink:#1d2330; --ink2:#4a5263; --muted:#8a8f9c; --line:#e6ddd1;
+    --brand:#e5674b; --teal:#2d6f69;
+    --scr:#0c121a; --scr2:#141c27; --scr-ink:#f2f5f8; --scr-muted:#93a0b0; --glow:#2fd0f5;
+    --ok:#46c98a; --bad:#ff7a5c; --warn:#f2b552;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--page); color:var(--ink); }
+  body { font:15px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
+  a { color:inherit; }
+  .wrap { max-width:1520px; margin:0 auto; padding:0 20px; }
+
+  /* nav */
+  nav { display:flex; align-items:center; gap:12px; padding:16px 0; flex-wrap:wrap; }
+  @media (max-width:640px) { .pillbadge { display:none; } nav .links { margin-left:0; } }
+  .brand { display:flex; align-items:center; gap:10px; font:650 19px Fraunces, Georgia, serif; text-decoration:none; }
+  .brand i { width:32px; height:32px; border-radius:10px; background:var(--brand); display:grid; place-items:center; color:#fff; }
+  nav .links { margin-left:auto; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .btn { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line); background:#fff; border-radius:99px; padding:7px 13px;
+         font:500 13px Inter, sans-serif; color:var(--ink); cursor:pointer; text-decoration:none; white-space:nowrap; }
+  .btn:hover { border-color:var(--ink2); }
+  .btn.dark { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .pillbadge { font:600 11px var(--mono); color:var(--teal); background:#e2f0ee; padding:3px 8px; border-radius:99px; }
+
+  /* hero */
+  .hero { display:grid; grid-template-columns: 1.1fr 1fr; gap:24px; align-items:end; padding:10px 0 22px; }
+  .hero h1 { margin:0; font:650 clamp(30px, 4vw, 50px)/1.04 Fraunces, Georgia, serif; letter-spacing:-.025em; }
+  .hero h1 em { font-style:italic; font-weight:500; color:var(--brand); }
+  .hero p { margin:0; color:var(--ink2); font-size:16px; max-width:560px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .tag { font-size:12px; font-weight:500; color:var(--ink2); background:#fff; border:1px solid var(--line); padding:4px 10px; border-radius:99px; }
+  @media (max-width:900px) { .hero { grid-template-columns:1fr; } }
+
+  /* stage */
+  .stage { display:grid; grid-template-columns:minmax(0, 1fr) 340px 380px; gap:22px; align-items:start; }
+  @media (max-width:1380px) { .stage { grid-template-columns:minmax(0, 1fr) 340px; } .inspector { grid-column:1 / -1; height:460px; } }
+  @media (max-width:900px) { .stage { grid-template-columns:minmax(0, 1fr); } .phone-col { justify-self:center; } }
+  .echo-col, .phone-col, .inspector { min-width:0; }
+  .label { font:600 11px Inter, sans-serif; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin:0 0 10px 4px; display:flex; gap:8px; align-items:center; }
+  .label b { color:var(--ink); }
+
+  /* Echo Show style device */
+  .echo { position:relative; }
+  .bezel { background:#0a0d11; border-radius:26px; padding:14px; box-shadow:0 40px 70px -30px rgba(20,25,35,.55), 0 2px 0 #2a313b inset; }
+  .screen { position:relative; aspect-ratio:16/10; border-radius:12px; overflow:hidden; container-type:inline-size; color:var(--scr-ink);
+            background:radial-gradient(120% 90% at 0% 0%, #1b3550 0%, #0f1b29 45%, #0b1017 100%); }
+  .base { height:46px; margin:0 6%; border-radius:0 0 40px 40px; background:
+      radial-gradient(circle, rgba(255,255,255,.07) 1px, transparent 1.4px) 0 0/6px 6px, linear-gradient(#2a2f36, #1b1f24); box-shadow:0 18px 30px -18px rgba(0,0,0,.6); }
+  .cam { position:absolute; top:5px; left:50%; width:6px; height:6px; margin-left:-3px; border-radius:50%; background:#1d242d; }
+  .glowbar { position:absolute; left:0; right:0; bottom:0; height:1.1cqw; min-height:5px; opacity:0; transition:opacity .25s;
+             background:linear-gradient(90deg, #1b6cf2, var(--glow), #7af0ff, var(--glow), #1b6cf2); background-size:200% 100%; filter:drop-shadow(0 0 8px var(--glow)); }
+  .glowbar.on { opacity:1; animation:flow 1.4s linear infinite; }
+  .glowbar.listen { opacity:1; animation:breathe 1.1s ease-in-out infinite; }
+  @keyframes flow { to { background-position:-200% 0 } }
+  @keyframes breathe { 50% { opacity:.45 } }
+
+  .view { position:absolute; inset:0; padding:4.2cqw 4.6cqw; transition:opacity .35s, transform .35s; }
+  .view.hide { opacity:0; pointer-events:none; transform:scale(.985); }
+  /* home view */
+  .home { display:grid; grid-template-columns: 1.05fr 1fr; gap:3.2cqw; }
+  .clock { font:300 11.5cqw/0.95 Inter, sans-serif; letter-spacing:-.04em; }
+  .clock small { font-size:3cqw; font-weight:400; letter-spacing:0; margin-left:.6cqw; color:var(--scr-muted); }
+  .date { font-size:2.1cqw; color:var(--scr-muted); margin-top:1.2cqw; }
+  .greet { font:500 3.6cqw/1.15 Fraunces, Georgia, serif; margin-top:4.5cqw; }
+  .hint { font-size:1.85cqw; color:var(--scr-muted); margin-top:1.4cqw; }
+  .hint b { color:var(--glow); font-weight:500; }
+  .tiles { display:flex; flex-direction:column; gap:1.6cqw; justify-content:center; }
+  .tile { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); border-radius:2cqw; padding:1.8cqw 2cqw; display:flex; gap:1.8cqw; align-items:center;
+          backdrop-filter:blur(8px); }
+  .tile .ic { width:4.6cqw; height:4.6cqw; border-radius:1.3cqw; display:grid; place-items:center; flex:none; background:rgba(47,208,245,.14); color:var(--glow); }
+  .tile .ic svg { width:2.6cqw; height:2.6cqw; }
+  .tile .k { font-size:1.6cqw; color:var(--scr-muted); text-transform:uppercase; letter-spacing:.08em; }
+  .tile .v { font-size:2.3cqw; font-weight:600; line-height:1.2; }
+  .tile.coral .ic { background:rgba(255,122,92,.15); color:var(--bad); }
+  .tile.green .ic { background:rgba(70,201,138,.15); color:var(--ok); }
+
+  /* conversation view */
+  .convo { display:grid; grid-template-columns: 1fr 1.05fr; gap:3cqw; align-items:center; }
+  .convo.full { grid-template-columns:1fr; align-items:start; }
+  .heard { font-size:1.9cqw; color:var(--scr-muted); font-style:italic; margin-bottom:1.6cqw; }
+  .reply { font:500 3.5cqw/1.22 Fraunces, Georgia, serif; letter-spacing:-.005em; }
+  .convo.full .reply { font-size:2.6cqw; }
+  .cards { display:flex; flex-direction:column; gap:1.4cqw; max-height:52cqw; overflow:hidden; }
+  .sc { background:rgba(255,255,255,.065); border:1px solid rgba(255,255,255,.09); border-radius:1.8cqw; padding:1.8cqw 2.1cqw; animation:rise .45s cubic-bezier(.2,.8,.2,1) both; }
+  .sc:nth-child(2) { animation-delay:.08s }
+  @keyframes rise { from { transform:translateY(1.4cqw); opacity:0 } }
+  .sc h4 { margin:0 0 1cqw; font-size:1.45cqw; letter-spacing:.1em; text-transform:uppercase; color:var(--scr-muted); font-weight:600; }
+  .sr { display:flex; align-items:center; justify-content:space-between; gap:1.4cqw; padding:.75cqw 0; border-top:1px solid rgba(255,255,255,.07); font-size:1.9cqw; }
+  .sr:first-of-type { border-top:0; }
+  .sr .sub { color:var(--scr-muted); font-size:1.6cqw; }
+  .st { font-size:1.4cqw; font-weight:600; padding:.3cqw 1cqw; border-radius:99px; white-space:nowrap; }
+  .st.taken { background:rgba(70,201,138,.16); color:var(--ok); } .st.pending { background:rgba(47,208,245,.14); color:var(--glow); }
+  .st.missed, .st.skipped, .st.low { background:rgba(255,122,92,.16); color:var(--bad); }
+  .alertline { margin-top:1cqw; padding:1.2cqw 1.4cqw; border-radius:1.2cqw; background:rgba(255,122,92,.13); border-left:.45cqw solid var(--bad); font-size:1.75cqw; }
+  .alertline.ok { background:rgba(70,201,138,.12); border-color:var(--ok); }
+  .bigv { font:650 6cqw/1 Fraunces, serif; letter-spacing:-.03em; }
+  .bigv small { font:400 1.8cqw Inter, sans-serif; color:var(--scr-muted); margin-left:.6cqw; letter-spacing:0; }
+  .minibars { display:flex; gap:.6cqw; align-items:flex-end; height:5cqw; margin-top:1cqw; }
+  .minibars i { flex:1; background:var(--glow); border-radius:.4cqw .4cqw 0 0; opacity:.85; min-height:3px; }
+  .dots { letter-spacing:.3cqw; color:var(--glow); }
+  .msgq { font:italic 500 2.3cqw/1.3 Fraunces, serif; }
+  .msgq small { display:block; font:500 1.5cqw Inter, sans-serif; color:var(--scr-muted); margin-top:.6cqw; font-style:normal; }
+  iframe.mcpapp { width:100%; height:44cqw; border:0; border-radius:1.4cqw; background:#f6f2ec; display:block; }
+  .appbadge { display:inline-block; font:600 1.3cqw var(--mono); color:var(--glow); background:rgba(47,208,245,.12); padding:.3cqw .9cqw; border-radius:99px; margin-left:.8cqw; letter-spacing:0; text-transform:none; }
+
+  /* proactive nudge overlay */
+  .nudge { position:absolute; inset:0; display:grid; place-items:center; background:rgba(6,10,15,.55); backdrop-filter:blur(6px); z-index:5; animation:fade .3s; }
+  .nudge.hide { display:none; }
+  @keyframes fade { from { opacity:0 } }
+  .nudge .box { width:64%; background:linear-gradient(160deg, #1d2b3c, #121a24); border:1px solid rgba(255,255,255,.12); border-radius:3cqw; padding:3.4cqw; text-align:center;
+                box-shadow:0 3cqw 6cqw rgba(0,0,0,.45); animation:rise .45s cubic-bezier(.2,.8,.2,1); }
+  .nudge .big { width:9cqw; height:9cqw; border-radius:50%; margin:0 auto 2cqw; display:grid; place-items:center; background:rgba(47,208,245,.15); color:var(--glow); animation:breathe 1.6s infinite; }
+  .nudge .big svg { width:4.6cqw; height:4.6cqw; }
+  .nudge .k { font-size:1.6cqw; letter-spacing:.12em; text-transform:uppercase; color:var(--glow); }
+  .nudge .t { font:500 3.4cqw/1.2 Fraunces, serif; margin:1cqw 0 2.6cqw; }
+  .nudge .acts { display:flex; gap:1.4cqw; justify-content:center; }
+  .nudge button { border:0; border-radius:99px; padding:1.3cqw 2.8cqw; font:600 1.9cqw Inter, sans-serif; cursor:pointer; }
+  .nudge .yes { background:var(--glow); color:#03202a; } .nudge .no { background:rgba(255,255,255,.1); color:var(--scr-ink); }
+
+  /* device controls */
+  .controls { display:flex; gap:10px; margin-top:16px; align-items:center; }
+  .mic { width:54px; height:54px; border-radius:50%; border:0; flex:none; cursor:pointer; color:#03202a; display:grid; place-items:center;
+         background:radial-gradient(circle at 35% 30%, #8bf0ff, var(--glow) 60%, #129bc4); box-shadow:0 8px 20px -6px rgba(47,208,245,.7); transition:transform .15s; }
+  .mic:hover { transform:scale(1.05); } .mic.on { background:var(--bad); color:#fff; animation:breathe 1s infinite; }
+  .say { flex:1; min-width:0; display:flex; background:#fff; border:1px solid var(--line); border-radius:99px; padding:4px 4px 4px 18px; }
+  .say input { flex:1; min-width:0; border:0; outline:0; font:inherit; font-size:15px; background:transparent; color:var(--ink); }
+  .say button { border:0; border-radius:99px; background:var(--ink); color:#fff; font:600 13px Inter, sans-serif; padding:0 16px; cursor:pointer; }
+  .script { margin-top:12px; display:flex; gap:7px; flex-wrap:wrap; }
+  .script button { border:1px solid var(--line); background:#fff; border-radius:12px; padding:7px 11px; font:500 13px Inter, sans-serif; color:var(--ink); cursor:pointer; text-align:left; transition:all .15s; }
+  .script button:hover { border-color:var(--teal); color:var(--teal); transform:translateY(-1px); }
+  .script button span { color:var(--muted); font-size:11px; display:block; font-weight:500; }
+  .demobar { margin-top:14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:13px; color:var(--muted); }
+  .demobar .btn { padding:5px 11px; font-size:12.5px; }
+  .demobar .btn.active { background:var(--teal); border-color:var(--teal); color:#fff; }
+
+  /* phone */
+  .phone { width:340px; max-width:100%; height:700px; background:#0b0d10; border-radius:52px; padding:12px; position:relative;
+           box-shadow:0 40px 70px -30px rgba(20,25,35,.55), 0 0 0 2px #2d333b inset; }
+  .phone::before { content:""; position:absolute; top:22px; left:50%; width:96px; height:28px; margin-left:-48px; border-radius:20px; background:#000; z-index:2; }
+  .phone iframe { width:100%; height:100%; border:0; border-radius:41px; background:#f6f2ec; }
+  .phone-col .note { font-size:12.5px; color:var(--muted); text-align:center; margin-top:12px; }
+
+  /* inspector */
+  .inspector { background:#10151c; color:#d6dee8; border-radius:20px; padding:16px; min-height:300px; height:740px; display:flex; flex-direction:column; box-shadow:0 30px 60px -35px rgba(20,25,35,.6); }
+  .ihead { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; }
+  .ihead .live { width:8px; height:8px; border-radius:50%; background:var(--ok); box-shadow:0 0 10px var(--ok); }
+  .imeta { font:12px/1.6 var(--mono); color:#8d9aab; margin:8px 0 12px; word-break:break-all; }
+  .imeta b { color:#e8eef5; font-weight:600; }
+  .ilog { flex:1; overflow-y:auto; max-height:720px; display:flex; flex-direction:column; gap:8px; }
+  .call { border:1px solid #222b36; background:#141b24; border-radius:12px; padding:9px 11px; font:12px/1.5 var(--mono); animation:rise2 .35s ease both; }
+  @keyframes rise2 { from { transform:translateY(6px); opacity:0 } }
+  .call.fresh { border-color:rgba(47,208,245,.6); box-shadow:0 0 0 3px rgba(47,208,245,.08); }
+  .call .m { display:flex; gap:8px; align-items:baseline; }
+  .call .verb { color:#7d8ea3; } .call .tool { color:var(--glow); font-weight:600; } .call .ms { margin-left:auto; color:#6b7a8c; }
+  .call .args { color:#f5c97a; margin-top:4px; word-break:break-word; }
+  .call details summary { cursor:pointer; color:#7d8ea3; margin-top:4px; list-style:none; } .call details summary::before { content:"▸ result"; }
+  .call details[open] summary::before { content:"▾ result"; }
+  .call pre { margin:6px 0 0; white-space:pre-wrap; word-break:break-word; color:#b9c6d4; max-height:220px; overflow:auto; }
+  .proactive { font-size:10.5px; color:#03202a; background:var(--glow); border-radius:99px; padding:1px 7px; font-weight:700; }
+  .iempty { color:#6b7a8c; font:12.5px/1.6 var(--mono); }
+
+  /* how it works */
+  section.how { padding:56px 0 30px; }
+  .how h2 { font:650 32px/1.1 Fraunces, Georgia, serif; letter-spacing:-.02em; margin:0 0 6px; }
+  .how > .wrap > p { color:var(--ink2); max-width:720px; margin:0 0 26px; }
+  .feat { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px; }
+  .f { background:#fff; border:1px solid var(--line); border-radius:18px; padding:18px; }
+  .f .fi { width:36px; height:36px; border-radius:11px; display:grid; place-items:center; background:#fde9e3; color:var(--brand); margin-bottom:10px; }
+  .f h3 { margin:0 0 4px; font-size:16px; }
+  .f p { margin:0; color:var(--ink2); font-size:14px; }
+  .connect { margin-top:22px; display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:900px) { .connect { grid-template-columns:1fr; } }
+  .code { background:#10151c; color:#d6dee8; border-radius:16px; padding:16px 18px; font:13px/1.65 var(--mono); overflow-x:auto; white-space:pre; }
+  .code .c { color:#6b7a8c; } .code .s { color:#f5c97a; } .code .k { color:var(--glow); }
+  .tools { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .tools code { font:12px var(--mono); background:#fff; border:1px solid var(--line); padding:4px 8px; border-radius:8px; }
+  footer { padding:26px 0 40px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); margin-top:30px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="/"><i><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></i>CareCircle</a>
+    <span class="pillbadge">MCP 2025-11-25</span>
+    <div class="links">
+      <a class="btn" href="#how">How it works</a>
+      <a class="btn" href="/family" target="_blank">Family app ↗</a>
+      <a class="btn dark" id="ghlink" href="https://github.com/hasini0/carecircle" target="_blank">GitHub</a>
+    </div>
+  </nav>
+
+  <div class="hero">
+    <h1>Alexa+ that <em>remembers</em>,<br>so families don't have to worry.</h1>
+    <div>
+      <p>Margaret is 78 and lives alone. She talks to Alexa the way she always has. CareCircle, a self-hosted MCP server, remembers her medicines, how she's feeling, and when her pills run low, and it decides <b>on its own</b> when Priya and Dev need to know.</p>
+      <div class="chips"><span class="tag">Self-hosted MCP · Streamable HTTP</span><span class="tag">MCP Apps</span><span class="tag">Memory across sessions</span><span class="tag">Autonomous escalation</span><span class="tag">Amazon Bedrock</span></div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="echo-col">
+      <div class="label"><b>Margaret's kitchen</b> · Alexa+ on Echo Show (simulated)</div>
+      <div class="echo">
+        <div class="bezel"><div class="screen" id="screen">
+          <div class="cam"></div>
+          <div class="view home" id="home">
+            <div>
+              <div class="clock" id="clock">--:--</div>
+              <div class="date" id="date"></div>
+              <div class="greet" id="greet">Good evening, Margaret</div>
+              <div class="hint">Try <b>“Alexa, what's next today?”</b></div>
+            </div>
+            <div class="tiles" id="tiles"></div>
+          </div>
+          <div class="view convo hide" id="convo">
+            <div><div class="heard" id="heard"></div><div class="reply" id="reply"></div></div>
+            <div class="cards" id="cards"></div>
+          </div>
+          <div class="nudge hide" id="nudge"><div class="box">
+            <div class="big" id="nudgeIcon"></div><div class="k" id="nudgeK">Reminder</div><div class="t" id="nudgeT"></div>
+            <div class="acts" id="nudgeActs"></div></div></div>
+          <div class="glowbar" id="glow"></div>
+        </div></div>
+        <div class="base"></div>
+      </div>
+      <div class="controls">
+        <button class="mic" id="mic" title="Talk (or press space)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+        <form class="say" id="sayForm"><input id="text" placeholder="Say or type to Alexa…" autocomplete="off"><button>Send</button></form>
+      </div>
+      <div class="script" id="script"></div>
+      <div class="demobar">Demo clock:
+        <button class="btn" data-clock="08:00">8:00 AM</button><button class="btn" data-clock="13:00">1:00 PM</button><button class="btn" data-clock="20:00">8:00 PM</button><button class="btn" data-clock="">Real time</button>
+        <span style="flex:1"></span><button class="btn" id="mute">🔊 Voice on</button><button class="btn" id="reset">↺ Reset demo</button>
+      </div>
+    </div>
+
+    <div class="phone-col">
+      <div class="label"><b>Priya's phone</b> · CareCircle family app</div>
+      <div class="phone"><iframe id="phone" src="/family" title="Family app"></iframe></div>
+      <div class="note">Send Mom a message from here: Alexa+ will tell her.</div>
+    </div>
+
+    <aside class="inspector">
+      <div class="ihead"><span class="live"></span>Under the hood · MCP traffic</div>
+      <div class="imeta" id="imeta">connecting…</div>
+      <div class="ilog" id="ilog"><div class="iempty">Every action Alexa+ takes is a real MCP request to the CareCircle server. They'll appear here.</div></div>
+    </aside>
+  </div>
+</div>
+
+<section class="how" id="how"><div class="wrap">
+  <h2>How it works</h2>
+  <p>CareCircle is an MCP server that holds the memory and the judgment. Alexa+ (here, an agent running on Amazon Bedrock with a local fallback) is just a client. Any MCP-compatible assistant can connect to the same endpoint.</p>
+  <div class="feat">
+    <div class="f"><div class="fi">🧠</div><h3>Memory across sessions</h3><p>Doses, check-ins, refills and messages persist, so "how's Mom been this week?" has a real answer, not just the last thing she said.</p></div>
+    <div class="f"><div class="fi">🚨</div><h3>Decides when to escalate</h3><p>Red-flag phrases (a fall, dizziness, chest pain), missed doses, low-mood or poor-sleep streaks and low supply each trigger an alert at the right urgency, to the right person, de-duplicated.</p></div>
+    <div class="f"><div class="fi">⏰</div><h3>Speaks first</h3><p>When a dose comes due, or Priya sends a message, the device asks CareCircle over MCP and Alexa+ brings it up unprompted.</p></div>
+    <div class="f"><div class="fi">🩺</div><h3>Ready for the doctor</h3><p>One request builds a visit brief: adherence, which doses get missed, mood, sleep, and symptoms in Margaret's own words.</p></div>
+    <div class="f"><div class="fi">🖼️</div><h3>MCP App on screen</h3><p><code>show_care_dashboard</code> is bound to <code>ui://carecircle/dashboard.html</code>. The host reads it over MCP and renders it in a sandbox.</p></div>
+    <div class="f"><div class="fi">💬</div><h3>A two-way loop</h3><p>Family can send a message from the app. Alexa+ reads it out and Priya gets a "heard ✓" receipt. No more daily "did you take your pills?" calls.</p></div>
+  </div>
+  <div class="connect">
+    <div>
+      <div class="label"><b>Connect any MCP client</b></div>
+      <div class="code" id="snippet"><span class="c"># Streamable HTTP · MCP 2025-11-25</span>
+npx @modelcontextprotocol/inspector
+<span class="c"># → connect to</span> <span class="s" id="mcpurl">https://…/mcp</span></div>
+      <div class="tools" id="toolsList"></div>
+    </div>
+    <div>
+      <div class="label"><b>Python</b></div>
+      <div class="code"><span class="k">from</span> mcp <span class="k">import</span> Client
+
+<span class="k">async with</span> Client(<span class="s" id="mcpurl2">"…/mcp"</span>) <span class="k">as</span> c:
+    r = <span class="k">await</span> c.call_tool(<span class="s">"whats_next"</span>,
+                          {<span class="s">"person"</span>: <span class="s">"Margaret"</span>})
+    print(r.structured_content[<span class="s">"speech"</span>])</div>
+    </div>
+  </div>
+  <footer>CareCircle is a reminder and family-communication tool, not a medical device. Built for the Amazon Developer "Build, Ship, Shape" hackathon · MIT licensed.</footer>
+</div></section>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const t12 = hhmm => { const [h,m] = hhmm.split(":").map(Number); return `${(h%12)||12}:${String(m).padStart(2,"0")} ${h<12?"AM":"PM"}`; };
+const session = Math.random().toString(36).slice(2);
+const SVG = {
+  pill:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="8.5" width="18" height="7" rx="3.5" transform="rotate(-45 12 12)"/><path d="M9.5 9.5l5 5"/></svg>',
+  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  msg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
+};
+let clockOffset = 0, voice = true, idleTimer = null, info = {}, seenUnread = 0;
+
+// ---------- scripted demo prompts
+const SCRIPT = [
+  ["What's next today?", "agenda"], ["I just took my Metformin", "log + refill check"],
+  ["I'm feeling a bit dizzy and only slept 4 hours", "check-in → auto-alert"], ["Read my messages", "family → Margaret"],
+  ["Get me ready for Dr. Chen", "visit brief"], ["Show me the dashboard", "MCP App"],
+  ["How's Mom been this week?", "family asks"], ["Let Priya know I'd love a call tonight", "message one person"],
+];
+$("script").innerHTML = SCRIPT.map(([t, s]) => `<button data-t="${esc(t)}"><span>${esc(s)}</span>“${esc(t)}”</button>`).join("");
+$("script").onclick = e => { const b = e.target.closest("button"); if (b) ask(b.dataset.t); };
+
+// ---------- clock + home screen
+const careNow = () => new Date(Date.now() + clockOffset);
+function syncClock(iso) { if (iso) clockOffset = new Date(iso).getTime() - Date.now(); }
+function tickClock() {
+  const d = careNow(), h = d.getHours();
+  $("clock").innerHTML = `${(h%12)||12}:${String(d.getMinutes()).padStart(2,"0")}<small>${h<12?"AM":"PM"}</small>`;
+  $("date").textContent = d.toLocaleDateString(undefined, {weekday:"long", month:"long", day:"numeric"});
+  $("greet").textContent = `Good ${h < 12 ? "morning" : h < 17 ? "afternoon" : "evening"}, Margaret`;
+}
+setInterval(tickClock, 1000);
+
+async function refreshHome() {
+  try {
+    const s = await fetch("/api/state").then(r => r.json());
+    const next = s.schedule.find(d => d.status === "pending"), missed = s.schedule.find(d => d.status === "missed");
+    const low = (s.refills || []).find(r => r.low), appt = s.appointments[0];
+    const unread = (s.feed || []).filter(f => f.kind === "message" && !f.delivered).length;
+    const tiles = [];
+    if (unread) tiles.push(`<div class="tile coral"><div class="ic">${SVG.msg}</div><div><div class="k">From family</div><div class="v">${unread} new message${unread>1?"s":""}</div></div></div>`);
+    if (missed) tiles.push(`<div class="tile coral"><div class="ic">${SVG.pill}</div><div><div class="k">Missed</div><div class="v">${esc(missed.medication)} · ${t12(missed.time)}</div></div></div>`);
+    tiles.push(next ? `<div class="tile"><div class="ic">${SVG.pill}</div><div><div class="k">Next medicine</div><div class="v">${esc(next.medication)} ${esc(next.dose)} · ${t12(next.time)}</div></div></div>`
+                    : `<div class="tile green"><div class="ic">${SVG.pill}</div><div><div class="k">Medicines</div><div class="v">All done for today ✓</div></div></div>`);
+    if (appt) { const d = new Date(appt.at); tiles.push(`<div class="tile"><div class="ic">${SVG.cal}</div><div><div class="k">${d.toLocaleDateString(undefined,{weekday:"long"})}</div><div class="v">${esc(appt.title.split(",")[0])} · ${d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})}</div></div></div>`); }
+    if (low && tiles.length < 4) tiles.push(`<div class="tile coral"><div class="ic">${SVG.pill}</div><div><div class="k">Running low</div><div class="v">${esc(low.medication)} · ${low.days_left} days left</div></div></div>`);
+    $("tiles").innerHTML = tiles.slice(0, 4).join("");
+  } catch {}
+}
+
+function showHome() { $("convo").classList.add("hide"); $("home").classList.remove("hide"); refreshHome(); }
+function showConvo() { $("home").classList.add("hide"); $("convo").classList.remove("hide"); }
+function armIdle(ms = 22000) { clearTimeout(idleTimer); idleTimer = setTimeout(showHome, ms); }
+
+// ---------- cards on the Echo screen
+function card(c) {
+  if (!c) return "";
+  const doses = ds => ds.map(d => `<div class="sr"><span>${esc(d.medication)} <span class="sub">${esc(d.dose)} · ${t12(d.time)}</span></span><span class="st ${d.status}">${d.status}</span></div>`).join("");
+  switch (c.type) {
+    case "agenda": return `<div class="sc"><h4>${esc(c.title)}</h4>${doses(c.doses)}${(c.appointments||[]).slice(0,1).map(a => `<div class="sr"><span>📅 ${esc(a.title)}</span><span class="sub">${new Date(a.at).toLocaleString([], {weekday:"short", hour:"numeric", minute:"2-digit"})}</span></div>`).join("")}
+                         ${(c.low_refills||[]).map(r => `<div class="alertline">${esc(r.medication)} runs out in ${r.days_left} days</div>`).join("")}</div>`;
+    case "schedule": return `<div class="sc"><h4>${esc(c.title)}</h4>${doses(c.doses)}</div>`;
+    case "reminder": return `<div class="sc"><h4>${esc(c.title)}</h4>${doses(c.doses)}</div>`;
+    case "checkin": return `<div class="sc"><h4>${esc(c.title)}</h4>
+        <div class="sr"><span>Mood</span><span class="dots">${"●".repeat(c.mood)}<span style="opacity:.25">${"●".repeat(5-c.mood)}</span></span></div>
+        ${c.sleep_hours != null ? `<div class="sr"><span>Sleep</span><span>${c.sleep_hours} h</span></div>` : ""}
+        ${c.pain != null ? `<div class="sr"><span>Pain</span><span>${c.pain}/10</span></div>` : ""}
+        ${(c.alerts||[]).map(a => `<div class="alertline">🔔 Family alerted · ${esc(a)}</div>`).join("")}</div>`;
+    case "summary": return `<div class="sc"><h4>${esc(c.title)}</h4><div class="bigv">${c.adherence_pct}%<small>doses taken</small></div>
+        <div class="minibars">${c.per_day.map(d => `<i style="height:${d.due ? 100*d.taken/d.due : 0}%"></i>`).join("")}</div>
+        ${c.average_mood ? `<div class="sr" style="margin-top:1cqw"><span>Average mood</span><span>${c.average_mood} / 5</span></div>` : ""}
+        ${(c.alerts||[]).slice(0,2).map(a => `<div class="alertline">${esc(a.reason)}</div>`).join("")}</div>`;
+    case "alert": return `<div class="sc"><h4>${esc(c.title)}</h4><div class="alertline ok">📨 To ${esc((c.recipients||[]).join(" & "))}: ${esc(c.reason)}</div></div>`;
+    case "messages": return c.messages.map(m => `<div class="sc"><h4>From ${esc(m.sender)}</h4><div class="msgq">“${esc(m.body)}”<small>${new Date(m.at).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})}</small></div></div>`).join("");
+    case "refills": return `<div class="sc"><h4>${esc(c.title)}</h4>${c.refills.map(r => `<div class="sr"><span>${esc(r.medication)}</span><span class="st ${r.low ? "low" : "taken"}">${r.days_left} days</span></div>`).join("")}</div>`;
+    case "doctor": return `<div class="sc"><h4>${esc(c.title)}${c.next_appointment ? " · " + esc(c.next_appointment.title.split(",")[0]) : ""}</h4>
+        <div class="sr"><span>Doses taken (${c.period_days} d)</span><span>${c.adherence_pct}%</span></div>
+        ${Object.entries(c.missed_by_medication||{}).slice(0,3).map(([m,n]) => `<div class="sr"><span class="sub">Missed ${esc(m)}</span><span>${n}×</span></div>`).join("")}
+        ${c.average_mood ? `<div class="sr"><span>Avg mood · sleep</span><span>${c.average_mood}/5 · ${c.average_sleep ?? "–"} h</span></div>` : ""}
+        ${(c.symptoms_reported||[]).slice(-2).map(s => `<div class="alertline">“${esc(s.notes)}”</div>`).join("")}</div>`;
+    case "mcp_app": return `<div class="sc" data-app="1"><h4>Care dashboard<span class="appbadge">${esc(c.resource_uri)}</span></h4><iframe class="mcpapp" sandbox="allow-scripts"></iframe></div>`;
+  }
+  return "";
+}
+
+function mountApps(cards) {
+  // Minimal MCP Apps host: render the ui:// HTML in a sandbox and push the tool result to it.
+  const frames = [...$("cards").querySelectorAll("iframe.mcpapp")];
+  cards.filter(c => c.type === "mcp_app").forEach((c, i) => {
+    const f = frames[i]; if (!f) return;
+    f.onload = () => f.contentWindow.postMessage({jsonrpc:"2.0", method:"ui/notifications/tool-result", params:{structuredContent:c.tool_result}}, "*");
+    f.srcdoc = c.html;
+  });
+}
+
+// ---------- voice out
+function speak(text) {
+  if (!voice || !text) return;
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = 1.0; u.pitch = 1.05;
+    const v = speechSynthesis.getVoices().find(v => /Samantha|Google US English|Aria|Jenny|Ava/i.test(v.name)); if (v) u.voice = v;
+    u.onstart = () => $("glow").className = "glowbar on"; u.onend = () => $("glow").className = "glowbar";
+    speechSynthesis.speak(u); } catch {}
+}
+
+// ---------- MCP inspector
+function logCalls(calls, proactive = false) {
+  if (!calls?.length) return;
+  const log = $("ilog"); log.querySelector(".iempty")?.remove();
+  log.querySelectorAll(".fresh").forEach(e => e.classList.remove("fresh"));
+  [...calls].reverse().forEach(c => {
+    const isRead = c.tool.startsWith("resources/read");
+    log.insertAdjacentHTML("afterbegin", `<div class="call fresh"><div class="m"><span class="verb">${isRead ? "resources/read" : "tools/call"}</span>
+      <span class="tool">${esc(isRead ? c.tool.split(" ")[1] : c.tool)}</span>${proactive ? `<span class="proactive">proactive</span>` : ""}<span class="ms">${c.ms} ms</span></div>
+      ${isRead ? "" : `<div class="args">${esc(JSON.stringify(c.arguments))}</div>`}
+      <details><summary></summary><pre>${esc(JSON.stringify(c.result, null, 1)).slice(0, 2400)}</pre></details></div>`);
+  });
+}
+
+// ---------- talk to Alexa+
+let busy = false;
+async function ask(text) {
+  text = text.trim(); if (!text || busy) return;
+  busy = true; $("text").value = ""; hideNudge();
+  showConvo(); $("heard").textContent = `“${text}”`; $("reply").innerHTML = '<span class="dots">● ● ●</span>'; $("cards").innerHTML = "";
+  $("glow").className = "glowbar on";
+  try {
+    const r = await fetch("/api/ask", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({text, session})}).then(r => r.json());
+    $("glow").className = "glowbar";
+    const cards = (r.cards || []).filter(Boolean);
+    const wide = cards.some(c => c.type === "mcp_app");
+    $("convo").classList.toggle("full", wide);
+    $("reply").textContent = r.speech;
+    $("cards").innerHTML = cards.slice(-2).map(card).join("");
+    mountApps(cards.slice(-2));
+    logCalls(r.calls);
+    if (r.brain) $("brainv").textContent = r.brain;
+    speak(r.speech);
+    armIdle(wide ? 40000 : 22000);
+  } catch (e) { $("reply").textContent = "Sorry, I couldn't reach CareCircle."; $("glow").className = "glowbar"; }
+  busy = false;
+}
+$("sayForm").onsubmit = e => { e.preventDefault(); ask($("text").value); };
+
+// ---------- proactive nudges (device polls CareCircle over MCP)
+function hideNudge() { $("nudge").classList.add("hide"); }
+async function pollNudges() {
+  if (busy) return;
+  try {
+    const r = await fetch("/api/nudges").then(r => r.json());
+    syncClock(r.now);
+    const rem = (r.cards || []).find(c => c && c.type === "reminder");
+    const unread = r.calls?.[0]?.result?.unread_messages || 0;
+    const newMsg = unread > seenUnread; seenUnread = unread;
+    if (!rem && !newMsg) return;  // only interrupt for a newly due dose or a new message
+    logCalls(r.calls, true);
+    if (rem) {
+      const meds = rem.doses.map(d => d.medication);
+      $("nudgeIcon").innerHTML = SVG.pill; $("nudgeK").textContent = `Reminder · ${t12(rem.doses[0].time)}`;
+      $("nudgeT").textContent = `Time for your ${rem.doses.map(d => `${d.medication} ${d.dose}`).join(" and ")}`;
+      $("nudgeActs").innerHTML = `<button class="yes">I took it</button><button class="no">Later</button>`;
+      $("nudgeActs").querySelector(".yes").onclick = () => ask(`I took my ${meds.join(" and ")}`);
+    } else {
+      $("nudgeIcon").innerHTML = SVG.msg; $("nudgeK").textContent = "New message";
+      $("nudgeT").textContent = "You have a message from your family";
+      $("nudgeActs").innerHTML = `<button class="yes">Read it</button><button class="no">Later</button>`;
+      $("nudgeActs").querySelector(".yes").onclick = () => ask("Read my messages");
+    }
+    $("nudgeActs").querySelector(".no").onclick = hideNudge;
+    $("nudge").classList.remove("hide");
+    speak(r.speech);
+    refreshHome();
+  } catch {}
+}
+
+// ---------- voice in (Web Speech API)
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+if (SR) {
+  rec = new SR(); rec.lang = "en-US"; rec.interimResults = true;
+  rec.onresult = e => { const r = e.results[e.results.length-1]; const t = r[0].transcript.replace(/^alexa,?\s*/i, "");
+    $("text").value = t; if (r.isFinal) ask(t); };
+  rec.onend = () => { $("mic").classList.remove("on"); if ($("glow").className.includes("listen")) $("glow").className = "glowbar"; };
+}
+$("mic").onclick = () => {
+  if (!rec) { $("text").focus(); $("text").placeholder = "Voice input needs Chrome. Type here instead…"; return; }
+  try { speechSynthesis.cancel(); } catch {}
+  $("mic").classList.add("on"); $("glow").className = "glowbar listen"; rec.start();
+};
+document.addEventListener("keydown", e => { if (e.code === "Space" && document.activeElement.tagName !== "INPUT") { e.preventDefault(); $("mic").click(); } });
+
+// ---------- demo controls
+document.querySelectorAll("[data-clock]").forEach(b => b.onclick = async () => {
+  const r = await fetch("/api/demo/clock", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({to: b.dataset.clock || null})}).then(r => r.json());
+  syncClock(r.now); tickClock();
+  document.querySelectorAll("[data-clock]").forEach(x => x.classList.toggle("active", x === b && !!b.dataset.clock));
+  showHome(); setTimeout(pollNudges, 400);
+});
+$("reset").onclick = async () => {
+  await fetch("/api/demo/reset", {method:"POST"}); seenUnread = 0;
+  document.querySelectorAll("[data-clock]").forEach(x => x.classList.remove("active"));
+  clockOffset = 0; $("ilog").innerHTML = '<div class="iempty">Demo reset: fresh week of history for Margaret.</div>';
+  showHome(); $("phone").contentWindow.location.reload();
+};
+$("mute").onclick = () => { voice = !voice; $("mute").textContent = voice ? "🔊 Voice on" : "🔇 Voice off"; if (!voice) try { speechSynthesis.cancel(); } catch {} };
+
+// ---------- boot
+fetch("/api/info").then(r => r.json()).then(i => {
+  info = i; syncClock(i.now); tickClock();
+  $("imeta").innerHTML = `endpoint <b>${esc(i.mcp_url)}</b><br>transport <b>Streamable HTTP</b> · protocol <b>${esc(i.protocol)}</b><br>brain <b id="brainv">${esc(i.brain)}</b>`;
+  $("mcpurl").textContent = i.mcp_url; $("mcpurl2").textContent = `"${i.mcp_url}"`;
+});
+$("toolsList").innerHTML = ["whats_next","log_medication","daily_checkin","check_nudges","get_family_messages","get_refill_status","record_refill",
+  "prepare_doctor_visit","get_wellbeing_summary","alert_family","show_care_dashboard","get_medication_schedule","add_medication","add_appointment","setup_person"]
+  .map(t => `<code>${t}</code>`).join("");
+tickClock(); refreshHome();
+setInterval(pollNudges, 6000); setTimeout(pollNudges, 1500);
+setInterval(() => { if (!$("home").classList.contains("hide")) refreshHome(); }, 5000);
+</script>
+</body>
+</html>

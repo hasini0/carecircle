@@ -25,8 +25,32 @@ RED_FLAGS = {
 }
 
 
+# Demo "time travel": the care clock can be shifted so a recorded demo can jump to 8 PM dose time.
+_clock_offset = timedelta(0)
+
+
+def set_clock(hhmm: str | None) -> None:
+    """Shift the care clock to a time of day today. Today's doses at or after that time are reopened,
+    so jumping to 20:00 really is "it's 8 PM and the evening dose is due"."""
+    global _clock_offset
+    if not hhmm:
+        _clock_offset = timedelta(0)
+        return
+    real = datetime.now()
+    target = datetime.combine(real.date(), datetime.strptime(hhmm, "%H:%M").time())
+    _clock_offset = target - real
+    slot = target.strftime("%Y-%m-%dT%H:%M")
+    conn = connect()
+    conn.execute("DELETE FROM dose_log WHERE scheduled_for>=? AND scheduled_for<?", (slot, f"{real.date()}T99"))
+    conn.execute("DELETE FROM reminders_sent WHERE scheduled_for>=?", (slot,))
+    conn.execute("DELETE FROM alerts WHERE at>=?", (target.isoformat(),))
+    conn.execute("DELETE FROM checkins WHERE at>=?", (target.isoformat(),))
+    conn.commit()
+    conn.close()
+
+
 def _now() -> datetime:
-    return datetime.now().replace(microsecond=0)
+    return (datetime.now() + _clock_offset).replace(microsecond=0)
 
 
 def connect() -> sqlite3.Connection:
@@ -43,7 +67,13 @@ def connect() -> sqlite3.Connection:
         );
         CREATE TABLE IF NOT EXISTS medications (
             id INTEGER PRIMARY KEY, person TEXT, name TEXT, dose TEXT, times TEXT,
-            purpose TEXT, active INTEGER DEFAULT 1
+            purpose TEXT, active INTEGER DEFAULT 1, pills_left INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY, person TEXT, at TEXT, sender TEXT, body TEXT, delivered_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS reminders_sent (
+            person TEXT, scheduled_for TEXT, PRIMARY KEY (person, scheduled_for)
         );
         CREATE TABLE IF NOT EXISTS dose_log (
             id INTEGER PRIMARY KEY, person TEXT, medication TEXT, scheduled_for TEXT,
@@ -93,14 +123,39 @@ def family_of(conn, person: str) -> list[dict]:
 
 # ---------- medications ----------
 
-def add_medication(conn, person: str, name: str, dose: str, times: list[str], purpose: str = "") -> dict:
+def add_medication(conn, person: str, name: str, dose: str, times: list[str], purpose: str = "",
+                   pills_left: int | None = None) -> dict:
     person = ensure_person(conn, person)
     conn.execute(
-        "INSERT INTO medications(person, name, dose, times, purpose) VALUES (?,?,?,?,?)",
-        (person, name.title(), dose, json.dumps(sorted(times)), purpose),
+        "INSERT INTO medications(person, name, dose, times, purpose, pills_left) VALUES (?,?,?,?,?,?)",
+        (person, name.title(), dose, json.dumps(sorted(times)), purpose, pills_left),
     )
     conn.commit()
-    return {"person": person, "medication": name.title(), "dose": dose, "times": sorted(times)}
+    return {"person": person, "medication": name.title(), "dose": dose, "times": sorted(times),
+            "pills_left": pills_left}
+
+
+def refill_status(conn, person: str) -> list[dict]:
+    """Days of supply left per medication (only for meds where a pill count is tracked)."""
+    person = ensure_person(conn, person)
+    out = []
+    for m in conn.execute("SELECT name, dose, times, pills_left FROM medications WHERE person=? AND active=1 "
+                          "AND pills_left IS NOT NULL", (person,)):
+        per_day = len(json.loads(m["times"])) or 1
+        days = m["pills_left"] // per_day
+        out.append({"medication": m["name"], "dose": m["dose"], "pills_left": m["pills_left"],
+                    "days_left": days, "low": days <= 5})
+    return sorted(out, key=lambda r: r["days_left"])
+
+
+def refill_medication(conn, person: str, medication: str, pills: int) -> dict:
+    person = ensure_person(conn, person)
+    cur = conn.execute("UPDATE medications SET pills_left = COALESCE(pills_left, 0) + ? WHERE person=? "
+                       "AND lower(name)=lower(?) AND active=1", (pills, person, medication.strip()))
+    if not cur.rowcount:
+        raise ValueError(f"{medication} isn't on {person}'s schedule.")
+    conn.commit()
+    return next(r for r in refill_status(conn, person) if r["medication"].lower() == medication.strip().lower())
 
 
 def _schedule_for_day(conn, person: str, day: date) -> list[dict]:
@@ -150,6 +205,9 @@ def log_dose(conn, person: str, medication: str, taken: bool = True) -> dict:
         "INSERT INTO dose_log(person, medication, scheduled_for, status, logged_at) VALUES (?,?,?,?,?)",
         (person, best["medication"], best["scheduled_for"], status, now.isoformat()),
     )
+    if taken and best["status"] != "taken":
+        conn.execute("UPDATE medications SET pills_left = MAX(pills_left - 1, 0) WHERE person=? AND name=? "
+                     "AND pills_left IS NOT NULL", (person, best["medication"]))
     conn.commit()
     return {**best, "status": status, "logged_at": now.isoformat()}
 
@@ -219,6 +277,12 @@ def assess_risk(conn, person: str, latest_notes: str = "") -> list[dict]:
         findings.append({"urgency": "medium", "reason": f"{person}'s mood has been low ({moods[-2]}/5, {moods[-1]}/5) "
                          "in the last two check-ins", "trigger": "low_mood_trend"})
 
+    for r in refill_status(conn, person):
+        if r["low"]:
+            findings.append({"urgency": "low", "reason": f"{person}'s {r['medication']} runs out in {r['days_left']} "
+                             f"day{'s' * (r['days_left'] != 1)} ({r['pills_left']} left) - time to order a refill",
+                             "trigger": f"refill_{r['medication'].lower()}"})
+
     sleeps = [c["sleep_hours"] for c in recent_checkins(conn, person, days=3) if c["sleep_hours"] is not None]
     if len(sleeps) >= 2 and all(s < 5 for s in sleeps[-2:]):
         findings.append({"urgency": "low", "reason": f"{person} has slept under 5 hours two nights running",
@@ -247,7 +311,7 @@ def send_alert(conn, person: str, urgency: str, reason: str, trigger: str = "man
     conn.commit()
     from notify import deliver  # local import keeps store.py dependency-free
     delivery = deliver(fam if urgency != "low" else fam[:1], person, urgency, reason)
-    return {"deduplicated": False, "urgency": urgency, "reason": reason, "recipients": recipients,
+    return {"deduplicated": False, "urgency": urgency, "reason": reason, "recipients": recipients, "trigger": trigger,
             "delivery": delivery}
 
 
@@ -275,3 +339,108 @@ def upcoming_appointments(conn, person: str, days: int = 14) -> list[dict]:
         "SELECT at, title, location FROM appointments WHERE person=? AND at>=? AND at<=? ORDER BY at",
         (person, now.isoformat(), (now + timedelta(days=days)).isoformat()),
     )]
+
+
+# ---------- family -> person messages (the two-way loop) ----------
+
+def send_family_message(conn, person: str, sender: str, body: str) -> dict:
+    person = ensure_person(conn, person)
+    conn.execute("INSERT INTO messages(person, at, sender, body) VALUES (?,?,?,?)",
+                 (person, _now().isoformat(), sender.strip().title(), body.strip()))
+    conn.commit()
+    return {"person": person, "sender": sender.strip().title(), "body": body.strip()}
+
+
+def take_family_messages(conn, person: str) -> list[dict]:
+    """Undelivered messages for the person; marks them delivered (Alexa has now read them out)."""
+    person = ensure_person(conn, person)
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, at, sender, body FROM messages WHERE person=? AND delivered_at IS NULL ORDER BY at", (person,))]
+    if rows:
+        conn.execute(f"UPDATE messages SET delivered_at=? WHERE id IN ({','.join('?' * len(rows))})",
+                     (_now().isoformat(), *[r["id"] for r in rows]))
+        conn.commit()
+    return rows
+
+
+def pending_message_count(conn, person: str) -> int:
+    return conn.execute("SELECT COUNT(*) FROM messages WHERE person=? AND delivered_at IS NULL",
+                        (person,)).fetchone()[0]
+
+
+# ---------- proactive reminders ----------
+
+def due_reminders(conn, person: str) -> list[dict]:
+    """Doses that are due now (from their time up to 2h after) and haven't been reminded yet.
+
+    Each dose is reminded once; the device polls this so Alexa+ can speak first.
+    """
+    person = ensure_person(conn, person)
+    now = _now()
+    due = []
+    for d in todays_schedule(conn, person):
+        slot = datetime.fromisoformat(d["scheduled_for"])
+        if d["status"] == "pending" and slot <= now <= slot + timedelta(hours=2):
+            if not conn.execute("SELECT 1 FROM reminders_sent WHERE person=? AND scheduled_for=?",
+                                (person, d["scheduled_for"])).fetchone():
+                due.append(d)
+    conn.executemany("INSERT OR IGNORE INTO reminders_sent(person, scheduled_for) VALUES (?,?)",
+                     [(person, d["scheduled_for"]) for d in due])
+    conn.commit()
+    return due
+
+
+# ---------- doctor visit prep ----------
+
+def doctor_summary(conn, person: str, days: int = 30) -> dict:
+    """A one-page brief to take to the next appointment."""
+    person = ensure_person(conn, person)
+    first = conn.execute("SELECT MIN(scheduled_for) FROM dose_log WHERE person=?", (person,)).fetchone()[0]
+    if first:  # don't count days before CareCircle was tracking anything as "missed"
+        days = max(1, min(days, (_now().date() - datetime.fromisoformat(first).date()).days + 1))
+    adh = adherence(conn, person, days)
+    checks = recent_checkins(conn, person, days)
+    moods = [c["mood"] for c in checks]
+    sleeps = [c["sleep_hours"] for c in checks if c["sleep_hours"] is not None]
+    pains = [c["pain"] for c in checks if c["pain"] is not None]
+    flagged = [c for c in checks if any(w in (c["notes"] or "").lower() for w in RED_FLAGS)]
+    missed_by_med: dict[str, int] = {}
+    today = _now().date()
+    for i in range(days - 1, 0, -1):
+        for s in _schedule_for_day(conn, person, today - timedelta(days=i)):
+            if s["status"] != "taken":
+                missed_by_med[s["medication"]] = missed_by_med.get(s["medication"], 0) + 1
+    appts = upcoming_appointments(conn, person, days=14)
+    return {
+        "person": person, "period_days": days, "next_appointment": appts[0] if appts else None,
+        "adherence_pct": adh["pct"], "missed_by_medication": missed_by_med,
+        "average_mood": round(sum(moods) / len(moods), 1) if moods else None,
+        "average_sleep": round(sum(sleeps) / len(sleeps), 1) if sleeps else None,
+        "max_pain": max(pains) if pains else None,
+        "symptoms_reported": [{"at": c["at"], "notes": c["notes"]} for c in flagged],
+        "alerts": recent_alerts(conn, person, days),
+        "medications": [dict(r) for r in conn.execute(
+            "SELECT name, dose, times, purpose FROM medications WHERE person=? AND active=1", (person,))],
+    }
+
+
+# ---------- activity feed for the family app ----------
+
+def activity_feed(conn, person: str, limit: int = 25) -> list[dict]:
+    person = ensure_person(conn, person)
+    since = (_now() - timedelta(days=3)).isoformat()
+    items = []
+    for r in conn.execute("SELECT medication, status, logged_at FROM dose_log WHERE person=? AND logged_at>=?",
+                          (person, since)):
+        items.append({"at": r["logged_at"], "kind": "dose", "status": r["status"],
+                      "text": f"{'Took' if r['status'] == 'taken' else 'Skipped'} {r['medication']}"})
+    for r in conn.execute("SELECT at, mood, notes FROM checkins WHERE person=? AND at>=?", (person, since)):
+        items.append({"at": r["at"], "kind": "checkin", "mood": r["mood"],
+                      "text": f"Check-in · mood {r['mood']}/5" + (f" · “{r['notes']}”" if r["notes"] else "")})
+    for r in conn.execute("SELECT at, urgency, reason FROM alerts WHERE person=? AND at>=?", (person, since)):
+        items.append({"at": r["at"], "kind": "alert", "urgency": r["urgency"], "text": r["reason"]})
+    for r in conn.execute("SELECT at, sender, body, delivered_at FROM messages WHERE person=? AND at>=?",
+                          (person, since)):
+        items.append({"at": r["at"], "kind": "message", "delivered": r["delivered_at"] is not None,
+                      "text": f"{r['sender']}: “{r['body']}”"})
+    return sorted(items, key=lambda i: i["at"], reverse=True)[:limit]

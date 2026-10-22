@@ -2,109 +2,239 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>CareCircle · Family</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#f6f4ef; --card:#fff; --ink:#1d2433; --muted:#6b7280; --line:#e7e2d8;
-          --ok:#1f8a5b; --warn:#c27c0e; --bad:#c2410c; --accent:#2f5d8a; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#14171c; --card:#1d222a; --ink:#e8eaee; --muted:#9aa3af; --line:#2b313b;
-            --ok:#4cc38a; --warn:#e3a33b; --bad:#f07a4a; --accent:#7fb0e0; }
+  :root {
+    --bg:#f6f2ec; --surface:#ffffff; --sunk:#f1ebe3; --ink:#1d2330; --ink2:#4a5263; --muted:#8a8f9c; --line:#e9e1d6;
+    --brand:#e5674b; --brand-soft:#fde9e3; --teal:#2d6f69; --teal-soft:#e2f0ee;
+    --ok:#2f8f5b; --ok-soft:#e3f3ea; --warn:#b7791f; --warn-soft:#fbf0dc; --bad:#d6452b; --bad-soft:#fde6e1;
+    --r:18px; --shadow:0 1px 2px rgba(29,35,48,.05), 0 6px 20px rgba(29,35,48,.06);
   }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink);
-         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
-  header { padding:20px 16px 8px; max-width:960px; margin:auto; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
-  header h1 { margin:0; font-size:22px; letter-spacing:-.01em; }
-  header .sub { color:var(--muted); }
-  .live { margin-left:auto; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
-  .live i { width:8px; height:8px; border-radius:50%; background:var(--ok); display:inline-block; animation:p 2s infinite; }
-  @keyframes p { 50% { opacity:.3 } }
-  main { max-width:960px; margin:auto; padding:8px 16px 32px; display:grid; gap:14px;
-         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
-  .card h2 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; }
-  .big { font-size:40px; font-weight:700; letter-spacing:-.02em; }
-  .dose { display:flex; justify-content:space-between; padding:8px 0; border-top:1px solid var(--line); }
-  .dose:first-of-type { border-top:0; }
-  .pill { font-size:12px; padding:2px 8px; border-radius:99px; font-weight:600; white-space:nowrap; align-self:center; }
-  .taken { background:color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok); }
-  .pending { background:color-mix(in srgb, var(--accent) 15%, transparent); color:var(--accent); }
-  .missed, .skipped { background:color-mix(in srgb, var(--bad) 15%, transparent); color:var(--bad); }
-  .alert { padding:10px 12px; border-radius:10px; margin-top:8px; border-left:4px solid var(--warn);
-           background:color-mix(in srgb, var(--warn) 9%, transparent); }
-  .alert.high { border-color:var(--bad); background:color-mix(in srgb, var(--bad) 10%, transparent); }
-  .alert small { color:var(--muted); display:block; margin-top:2px; }
-  .bars { display:flex; gap:6px; align-items:flex-end; height:80px; margin-top:8px; }
-  .bars div { flex:1; background:var(--accent); border-radius:4px 4px 0 0; min-height:3px; opacity:.85; }
-  .labels { display:flex; gap:6px; font-size:11px; color:var(--muted); }
-  .labels span { flex:1; text-align:center; }
-  .muted { color:var(--muted); }
-  .empty { color:var(--muted); font-style:italic; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--ink); }
+  body { font:15px/1.45 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing:antialiased; }
+  .app { max-width:1100px; margin:0 auto; padding:14px 16px 28px; }
+  .top { display:flex; align-items:center; gap:10px; padding:6px 2px 14px; }
+  .logo { width:30px; height:30px; border-radius:10px; background:var(--brand); display:grid; place-items:center; color:#fff; }
+  .top .hi { font-size:13px; color:var(--muted); line-height:1.2; }
+  .top .hi b { display:block; color:var(--ink); font-size:16px; }
+  .top .live { margin-left:auto; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 0 rgba(47,143,91,.5); animation:ping 2s infinite; }
+  @keyframes ping { 70% { box-shadow:0 0 0 7px rgba(47,143,91,0) } 100% { box-shadow:0 0 0 0 rgba(47,143,91,0) } }
+
+  .grid { display:grid; gap:12px; grid-template-columns:1fr; }
+  @media (min-width:760px) { .grid { grid-template-columns:1fr 1fr; } .span2 { grid-column:span 2; } }
+  @media (min-width:1020px) { .grid { grid-template-columns:repeat(3, 1fr); } .span2 { grid-column:span 2; } .span3 { grid-column:span 3; } }
+  .card { background:var(--surface); border-radius:var(--r); box-shadow:var(--shadow); padding:16px; min-width:0; }
+  .card h2 { margin:0 0 12px; font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); display:flex; align-items:center; gap:8px; }
+  .card h2 .more { margin-left:auto; text-transform:none; letter-spacing:0; font-weight:500; }
+
+  .hero { display:flex; gap:14px; align-items:center; }
+  .avatar { width:58px; height:58px; border-radius:50%; flex:none; display:grid; place-items:center; font:650 22px Fraunces, serif; color:#fff;
+            background:linear-gradient(135deg, #f0956f, #d65a3f); box-shadow:0 0 0 3px #fff, 0 0 0 5px var(--ok); }
+  .hero.watch .avatar { box-shadow:0 0 0 3px #fff, 0 0 0 5px var(--warn); }
+  .hero.attention .avatar { box-shadow:0 0 0 3px #fff, 0 0 0 5px var(--bad); animation:ring 1.4s infinite; }
+  @keyframes ring { 50% { box-shadow:0 0 0 3px #fff, 0 0 0 9px rgba(214,69,43,.35) } }
+  .hero h1 { margin:0; font:650 24px/1.15 Fraunces, Georgia, serif; letter-spacing:-.01em; }
+  .hero .meta { color:var(--muted); font-size:13px; margin-top:2px; }
+  .status { display:inline-flex; align-items:center; gap:6px; margin-top:8px; padding:4px 10px; border-radius:99px; font-size:12.5px; font-weight:600; background:var(--ok-soft); color:var(--ok); }
+  .watch .status { background:var(--warn-soft); color:var(--warn); }
+  .attention .status { background:var(--bad-soft); color:var(--bad); }
+
+  .banner { margin-top:14px; padding:12px 14px; border-radius:14px; background:var(--bad-soft); color:#8e2a17; display:flex; gap:10px; align-items:flex-start; animation:slide .4s ease; }
+  .banner.medium { background:var(--warn-soft); color:#7a4f10; }
+  .banner svg { flex:none; margin-top:1px; }
+  .banner small { display:block; opacity:.75; margin-top:3px; }
+  @keyframes slide { from { transform:translateY(-6px); opacity:0 } }
+
+  .stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
+  .stat { background:var(--sunk); border-radius:14px; padding:12px; min-width:0; }
+  .stat .v { font:650 26px/1 Fraunces, Georgia, serif; letter-spacing:-.02em; }
+  .stat .v small { font:500 13px Inter, sans-serif; color:var(--muted); margin-left:2px; }
+  .stat .l { font-size:12px; color:var(--muted); margin-top:6px; }
+  .spark { display:flex; align-items:flex-end; gap:3px; height:26px; margin-top:8px; }
+  .spark i { flex:1; border-radius:3px; background:var(--teal); opacity:.8; min-height:3px; }
+
+  .dose { display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--line); }
+  .dose:first-child { border-top:0; padding-top:2px; }
+  .tick { width:30px; height:30px; border-radius:50%; flex:none; display:grid; place-items:center; border:2px solid var(--line); color:transparent; }
+  .tick.taken { background:var(--ok); border-color:var(--ok); color:#fff; }
+  .tick.missed, .tick.skipped { background:var(--bad-soft); border-color:var(--bad); color:var(--bad); }
+  .tick.pending { border-style:dashed; border-color:#c9bfb1; }
+  .dose .n { font-weight:600; } .dose .s { font-size:13px; color:var(--muted); }
+  .dose .t { margin-left:auto; font-size:13px; color:var(--ink2); font-variant-numeric:tabular-nums; text-align:right; }
+  .dose .t small { display:block; color:var(--muted); font-size:11.5px; }
+
+  .supply { padding:8px 0; }
+  .supply .row { display:flex; justify-content:space-between; font-size:14px; }
+  .supply .row span:last-child { color:var(--muted); font-size:13px; }
+  .bar { height:8px; border-radius:99px; background:var(--sunk); margin-top:7px; overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:99px; background:var(--teal); }
+  .supply.low .bar i { background:var(--brand); } .supply.low .row span:last-child { color:var(--brand); font-weight:600; }
+
+  .compose { display:flex; gap:8px; }
+  .compose input { flex:1; min-width:0; border:1px solid var(--line); background:var(--sunk); border-radius:99px; padding:11px 16px; font:inherit; color:var(--ink); outline:none; }
+  .compose input:focus { border-color:var(--teal); background:#fff; }
+  .compose button { border:0; border-radius:99px; background:var(--teal); color:#fff; font:600 14px Inter, sans-serif; padding:0 18px; cursor:pointer; }
+  .compose button:disabled { opacity:.5; }
+  .quick { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .quick button { border:1px solid var(--line); background:#fff; border-radius:99px; padding:6px 11px; font:500 12.5px Inter, sans-serif; color:var(--ink2); cursor:pointer; }
+  .quick button:hover { border-color:var(--teal); color:var(--teal); }
+  .sent { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
+  .bubble { align-self:flex-end; max-width:85%; background:var(--teal); color:#fff; padding:8px 12px; border-radius:16px 16px 4px 16px; font-size:14px; }
+  .bubble small { display:block; font-size:11px; opacity:.8; margin-top:2px; text-align:right; }
+
+  .feed { list-style:none; margin:0; padding:0; }
+  .feed li { display:flex; gap:12px; padding:9px 0; border-top:1px solid var(--line); font-size:14px; animation:slide .35s ease; }
+  .feed li:first-child { border-top:0; padding-top:0; }
+  .ico { width:30px; height:30px; border-radius:10px; flex:none; display:grid; place-items:center; background:var(--sunk); color:var(--ink2); }
+  .ico.dose { background:var(--ok-soft); color:var(--ok); } .ico.alert { background:var(--bad-soft); color:var(--bad); }
+  .ico.checkin { background:var(--teal-soft); color:var(--teal); } .ico.message { background:var(--brand-soft); color:var(--brand); }
+  .feed .when { color:var(--muted); font-size:12px; }
+  .appt { display:flex; gap:12px; align-items:center; }
+  .cal { width:48px; flex:none; border-radius:12px; overflow:hidden; text-align:center; background:var(--sunk); }
+  .cal b { display:block; background:var(--brand); color:#fff; font-size:10.5px; letter-spacing:.08em; padding:2px 0; text-transform:uppercase; }
+  .cal span { font:650 20px/30px Fraunces, serif; }
+  .empty { color:var(--muted); font-size:14px; }
+  /* MCP App mode: rendered inside the Alexa+ screen, landscape and glanceable */
+  .app-mode .app { padding:10px; }
+  .app-mode .top, .app-mode .compose-card, .app-mode .feed-card, .app-mode .appt-card { display:none; }
+  .app-mode .grid { grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; }
+  .app-mode .span2 { grid-column:span 3; }
+  .app-mode .card { padding:12px 14px; }
+  .app-mode .hero h1 { font-size:20px; } .app-mode .avatar { width:44px; height:44px; font-size:18px; }
+  .app-mode .stats { grid-template-columns:1fr; } .app-mode .stat .spark { display:none; }
+  .app-mode .banner { margin-top:10px; padding:9px 12px; }
 </style>
 </head>
 <body>
-<header>
-  <h1 id="title">CareCircle</h1><span class="sub" id="sub">Family view</span>
-  <span class="live"><i></i> live</span>
-</header>
-<main>
-  <section class="card"><h2>Medication adherence · 7 days</h2>
-    <div class="big" id="adh">–</div><div class="muted" id="adhSub"></div>
-    <div class="bars" id="adhBars"></div><div class="labels" id="adhLabels"></div></section>
-  <section class="card"><h2>Today's medicines</h2><div id="doses"></div></section>
-  <section class="card"><h2>Alerts sent to family</h2><div id="alerts"></div></section>
-  <section class="card"><h2>Mood · recent check-ins</h2>
-    <div class="bars" id="moodBars"></div><div class="labels" id="moodLabels"></div>
-    <div class="muted" id="lastNote" style="margin-top:10px"></div></section>
-  <section class="card"><h2>Coming up</h2><div id="appts"></div></section>
-</main>
+<div class="app" id="app">
+  <div class="top">
+    <div class="logo"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></div>
+    <div class="hi">CareCircle<b id="hello">Hi Priya</b></div>
+    <div class="live"><span class="dot"></span><span id="updated">live</span></div>
+  </div>
+  <div class="grid">
+    <section class="card span2" id="heroCard">
+      <div class="hero" id="hero">
+        <div class="avatar" id="avatar">M</div>
+        <div><h1 id="name">Margaret</h1><div class="meta" id="lastSeen">–</div><div class="status" id="status">All good</div></div>
+      </div>
+      <div id="banner"></div>
+    </section>
+    <section class="card"><h2>This week</h2>
+      <div class="stats">
+        <div class="stat"><div class="v" id="adh">–</div><div class="l">doses taken</div><div class="spark" id="adhSpark"></div></div>
+        <div class="stat"><div class="v" id="mood">–</div><div class="l">avg mood</div><div class="spark" id="moodSpark"></div></div>
+        <div class="stat"><div class="v" id="sleep">–</div><div class="l">avg sleep</div><div class="spark" id="sleepSpark"></div></div>
+      </div>
+    </section>
+    <section class="card"><h2>Today's medicines</h2><div id="doses"></div></section>
+    <section class="card compose-card"><h2>Send Mom a message</h2>
+      <form class="compose" id="compose"><input id="msg" placeholder="Alexa will read it to her…" maxlength="300" autocomplete="off"><button id="send">Send</button></form>
+      <div class="quick" id="quick"><button type="button">Call you tonight at 7? ❤️</button><button type="button">Don't forget your walk!</button><button type="button">Kids say hi!</button></div>
+      <div class="sent" id="sent"></div>
+    </section>
+    <section class="card"><h2>Medicine supply</h2><div id="supply"></div></section>
+    <section class="card span2 feed-card"><h2>Activity</h2><ul class="feed" id="feed"></ul></section>
+    <section class="card appt-card"><h2>Coming up</h2><div id="appts"></div></section>
+  </div>
+</div>
 <script>
-const person = new URLSearchParams(location.search).get("person") || "Margaret";
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const person = new URLSearchParams(location.search).get("person") || "Margaret";
 const t12 = hhmm => { const [h,m] = hhmm.split(":").map(Number); return `${(h%12)||12}:${String(m).padStart(2,"0")} ${h<12?"AM":"PM"}`; };
-const ago = iso => { const m = Math.round((Date.now() - new Date(iso)) / 60000);
+let serverNow = null;
+const nowMs = () => serverNow ? serverNow.getTime() : Date.now();
+const ago = iso => { const m = Math.round((nowMs() - new Date(iso)) / 60000);
   return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m/60)} h ago` : `${Math.round(m/1440)} d ago`; };
+const I = {
+  check:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  x:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  pill:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="8.5" width="18" height="7" rx="3.5" transform="rotate(-45 12 12)"/><path d="M9.5 9.5l5 5"/></svg>',
+  heart:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
+  bell:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
+  msg:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  warn:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17.5v.5"/></svg>',
+};
+const avg = a => a.length ? a.reduce((x,y) => x+y, 0) / a.length : null;
+const spark = (vals, max, color) => vals.map(v => `<i style="height:${Math.max(6, 100*v/max)}%;${color ? `background:${color(v)}` : ""}"></i>`).join("");
 
 function render(s) {
-  $("title").textContent = `${s.person}'s CareCircle`;
-  $("sub").textContent = s.family?.length ? `Shared with ${s.family.map(f => f.name).join(", ")}` : "Family view";
-  $("adh").textContent = `${s.adherence.pct}%`;
-  $("adhSub").textContent = `${s.adherence.taken} of ${s.adherence.due} doses taken`;
-  $("adhBars").innerHTML = s.adherence.per_day.map(d =>
-    `<div title="${d.date}: ${d.taken}/${d.due}" style="height:${d.due ? 100*d.taken/d.due : 0}%"></div>`).join("");
-  $("adhLabels").innerHTML = s.adherence.per_day.map(d =>
-    `<span>${new Date(d.date+"T12:00").toLocaleDateString(undefined,{weekday:"narrow"})}</span>`).join("");
-  $("doses").innerHTML = s.schedule.length ? s.schedule.map(d =>
-    `<div class="dose"><span><b>${esc(d.medication)}</b> <span class="muted">${esc(d.dose)} · ${t12(d.time)}</span></span>
-     <span class="pill ${d.status}">${d.status}</span></div>`).join("") : `<div class="empty">No medicines scheduled</div>`;
-  $("alerts").innerHTML = s.alerts.length ? s.alerts.slice(0,5).map(a =>
-    `<div class="alert ${a.urgency}">${esc(a.reason)}<small>${a.urgency} · to ${esc(a.recipients.join(", "))} · ${ago(a.at)}</small></div>`).join("")
-    : `<div class="empty">No alerts this week 🎉</div>`;
-  const cs = s.checkins.slice(-7);
-  $("moodBars").innerHTML = cs.map(c => `<div title="${c.mood}/5" style="height:${c.mood*20}%;background:${c.mood<=2?"var(--bad)":c.mood==3?"var(--warn)":"var(--ok)"}"></div>`).join("")
-    || `<span class="empty">No check-ins yet</span>`;
-  $("moodLabels").innerHTML = cs.map(c => `<span>${c.mood}</span>`).join("");
-  const last = s.checkins[s.checkins.length - 1];
-  $("lastNote").innerHTML = last?.notes ? `Last said: “${esc(last.notes)}” <span class="muted">(${ago(last.at)})</span>` : "";
-  $("appts").innerHTML = s.appointments.length ? s.appointments.map(a =>
-    `<div class="dose"><span><b>${esc(a.title)}</b> <span class="muted">${esc(a.location)}</span></span>
-     <span class="muted">${new Date(a.at).toLocaleString(undefined,{weekday:"short",hour:"numeric",minute:"2-digit"})}</span></div>`).join("")
-    : `<div class="empty">Nothing scheduled</div>`;
+  if (s.now) serverNow = new Date(s.now);
+  const first = s.person.split(" ")[0];
+  $("name").textContent = `Mom · ${s.person}`;
+  $("avatar").textContent = first[0];
+  const hero = $("hero"); hero.className = `hero ${s.status || "ok"}`;
+  $("status").innerHTML = { ok: `${I.check} All good`, watch: "● Keep an eye on her", attention: "● Needs attention" }[s.status || "ok"];
+  const latest = s.feed?.[0];
+  $("lastSeen").textContent = latest ? `Last active ${ago(latest.at)} · ${s.family.map(f => f.name).join(" & ")} in the circle` : "";
+  const top = s.alerts.find(a => a.urgency !== "low" && nowMs() - new Date(a.at) < 864e5);
+  $("banner").innerHTML = top ? `<div class="banner ${top.urgency}">${I.warn}<div><b>${esc(top.reason)}</b><small>CareCircle alerted ${esc(top.recipients.join(" & "))} · ${ago(top.at)}</small></div></div>` : "";
+
+  $("adh").innerHTML = `${s.adherence.pct}<small>%</small>`;
+  $("adhSpark").innerHTML = spark(s.adherence.per_day.map(d => d.due ? d.taken/d.due : 0), 1);
+  const moods = s.checkins.map(c => c.mood), sleeps = s.checkins.map(c => c.sleep_hours).filter(v => v != null);
+  $("mood").innerHTML = moods.length ? `${avg(moods).toFixed(1)}<small>/5</small>` : "–";
+  $("moodSpark").innerHTML = spark(moods.slice(-7), 5, v => v <= 2 ? "var(--bad)" : v === 3 ? "var(--warn)" : "var(--ok)");
+  $("sleep").innerHTML = sleeps.length ? `${avg(sleeps).toFixed(1)}<small>h</small>` : "–";
+  $("sleepSpark").innerHTML = spark(sleeps.slice(-7), 9, v => v < 5 ? "var(--bad)" : "#5b7fb5");
+
+  $("doses").innerHTML = s.schedule.map(d => `<div class="dose"><div class="tick ${d.status}">${d.status === "taken" ? I.check : d.status === "pending" ? "" : I.x}</div>
+      <div><div class="n">${esc(d.medication)}</div><div class="s">${esc(d.dose)} · ${esc(d.purpose)}</div></div>
+      <div class="t">${t12(d.time)}<small>${d.status === "taken" && d.logged_at ? "taken " + t12(d.logged_at.slice(11,16)) : d.status}</small></div></div>`).join("")
+    || `<div class="empty">No medicines scheduled</div>`;
+
+  $("supply").innerHTML = (s.refills || []).map(r => `<div class="supply ${r.low ? "low" : ""}"><div class="row"><span>${esc(r.medication)}</span>
+      <span>${r.days_left} day${r.days_left === 1 ? "" : "s"} left${r.low ? " · refill" : ""}</span></div><div class="bar"><i style="width:${Math.min(100, r.days_left/30*100)}%"></i></div></div>`).join("")
+    || `<div class="empty">No pill counts tracked</div>`;
+
+  const icon = { dose: I.pill, checkin: I.heart, alert: I.bell, message: I.msg };
+  $("feed").innerHTML = (s.feed || []).slice(0, 8).map(f => `<li><div class="ico ${f.kind}">${icon[f.kind]}</div>
+      <div><div>${esc(f.text)}${f.kind === "message" ? (f.delivered ? " <span class='when'>· heard ✓</span>" : " <span class='when'>· waiting</span>") : ""}</div><div class="when">${ago(f.at)}</div></div></li>`).join("")
+    || `<li class="empty">Nothing yet today</li>`;
+
+  $("appts").innerHTML = s.appointments.map(a => { const d = new Date(a.at);
+    return `<div class="appt"><div class="cal"><b>${d.toLocaleDateString(undefined,{month:"short"})}</b><span>${d.getDate()}</span></div>
+      <div><div style="font-weight:600">${esc(a.title)}</div><div class="when">${d.toLocaleDateString(undefined,{weekday:"long"})} · ${d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})} · ${esc(a.location)}</div></div></div>`; }).join("")
+    || `<div class="empty">Nothing scheduled</div>`;
+
+  const mine = (s.feed || []).filter(f => f.kind === "message").slice(0, 3).reverse();
+  $("sent").innerHTML = mine.map(m => `<div class="bubble">${esc(m.text.replace(/^[^:]+:\s*/, "").replace(/^“|”$/g, ""))}<small>${m.delivered ? "Heard by " + first + " ✓" : "Delivered · waiting for " + first}</small></div>`).join("");
+  $("updated").textContent = "live";
 }
 
-// Running inside an MCP Apps host: the host pushes the tool result to us.
+// MCP Apps mode: the host (Alexa+ screen) pushes the tool result to us; no network access needed.
 window.addEventListener("message", e => {
   const m = e.data;
-  if (m?.method === "ui/notifications/tool-result" && m.params?.structuredContent) render(m.params.structuredContent);
+  if (m?.method === "ui/notifications/tool-result" && m.params?.structuredContent) {
+    document.body.classList.add("app-mode"); render(m.params.structuredContent);
+  }
 });
 
-// Standalone (family's phone / browser): poll the server.
+// Standalone family app: poll the server.
 async function poll() {
-  try { const r = await fetch(`/api/state?person=${encodeURIComponent(person)}`); if (r.ok) render(await r.json()); } catch {}
+  try {
+    const [st, info] = await Promise.all([fetch(`/api/state?person=${encodeURIComponent(person)}`).then(r => r.json()),
+                                          fetch("/api/info").then(r => r.json())]);
+    render({...st, now: info.now});
+  } catch {}
 }
-if (location.protocol.startsWith("http")) { poll(); setInterval(poll, 2000); }
+async function send(text) {
+  text = text.trim(); if (!text) return;
+  $("send").disabled = true;
+  await fetch("/api/family/message", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({person, sender:"Priya", body:text})});
+  $("msg").value = ""; $("send").disabled = false; poll();
+}
+if (location.protocol.startsWith("http")) {
+  $("compose").onsubmit = e => { e.preventDefault(); send($("msg").value); };
+  $("quick").onclick = e => { if (e.target.tagName === "BUTTON") send(e.target.textContent); };
+  poll(); setInterval(poll, 2000);
+}
 </script>
 </body>
 </html>

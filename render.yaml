@@ -1,0 +1,16 @@
+# One-click deploy: https://render.com/deploy?repo=https://github.com/hasini0/carecircle
+services:
+  - type: web
+    name: carecircle
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server/carecircle_server.py
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PYTHON_VERSION
+        value: 3.12.9
+      - key: TZ
+        value: America/Los_Angeles

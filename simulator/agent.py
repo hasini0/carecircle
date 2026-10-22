@@ -28,7 +28,10 @@ SYSTEM = (
     f"Always pass person=\"{PERSON}\". When they mention medicine they took, call log_medication once per "
     "medication. When they describe how they feel, slept, pain or anything worrying, call daily_checkin with "
     "mood 1-5 and their own words as notes. For 'what's next' use whats_next. Reply in at most two short, warm, "
-    "spoken sentences - no markdown, no lists. Each tool result includes a `speech` field you can reuse."
+    "spoken sentences - no markdown, no lists. Each tool result includes a `speech` field you can reuse. "
+    "If they ask to hear messages from family, call get_family_messages. For refills use get_refill_status or "
+    "record_refill; before a doctor's appointment use prepare_doctor_visit; to show things on screen use "
+    "show_care_dashboard."
 )
 
 
@@ -70,9 +73,21 @@ async def _call(client: Client, turn: Turn, name: str, args: dict) -> dict:
                        "result": {k: v for k, v in data.items() if k != "card"}})
     if data.get("card"):
         turn.cards.append(data["card"])
-    if name == "show_care_dashboard":
-        turn.cards.append({"type": "dashboard", "title": "Care dashboard", "person": PERSON})
+    ui = _ui_resources.get(name)
+    if ui is None and name not in _ui_resources:
+        tool = next((t for t in (await client.list_tools()).tools if t.name == name), None)
+        ui = ((tool.meta or {}).get("ui") or {}).get("resourceUri") if tool else None
+        _ui_resources[name] = ui
+    if ui:  # MCP Apps: this tool has a UI; read it over MCP (resources/read) and render it with the result
+        html = (await client.read_resource(ui)).contents[0].text
+        turn.calls.append({"tool": f"resources/read {ui}", "arguments": {}, "ms": 0,
+                           "result": {"mimeType": "text/html;profile=mcp-app", "bytes": len(html)}})
+        turn.cards.append({"type": "mcp_app", "title": "MCP App", "resource_uri": ui, "html": html,
+                           "tool_result": {k: v for k, v in data.items() if k not in ("card", "speech")}})
     return data
+
+
+_ui_resources: dict[str, str | None] = {}
 
 
 # ------------------------------------------------------------------ LLM brains
@@ -130,6 +145,15 @@ MOOD_WORDS = [
 FAMILY = {"priya": "Priya", "daughter": "Priya", "dev": "Dev", "son": "Dev"}
 
 
+def _hour() -> int:
+    """Hour of the care clock (which the demo can shift), falling back to local time."""
+    try:
+        import store
+        return store._now().hour
+    except Exception:
+        return time.localtime().tm_hour
+
+
 def _mood(text: str) -> int:
     for score, pat in MOOD_WORDS:
         if re.search(pat, text):
@@ -144,6 +168,23 @@ async def _local_turn(client: Client, turn: Turn, text: str) -> None:
 
     if re.search(r"\b(dashboard|show me)\b", t):
         said.append((await _call(client, turn, "show_care_dashboard", p))["speech"])
+
+    elif re.search(r"\b(read|play|any|hear|check|new)\b.*\bmessages?\b|\b(read|play) it\b", t) or re.fullmatch(r"(yes|yeah|sure|ok|okay)[.! ]*(please)?[.!]*", t):
+        said.append((await _call(client, turn, "get_family_messages", p))["speech"])
+
+    elif re.search(r"\b(doctor|dr\.? \w+|check-?up)\b", t) and re.search(r"\b(prep|ready|tell|summary|brief|say|mention)", t):
+        said.append((await _call(client, turn, "prepare_doctor_visit", p))["speech"])
+
+    elif re.search(r"\b(picked up|got|collected)\b.*\b(refill|prescription)\b", t):
+        sched = (await _call(client, turn, "get_refill_status", p))["refills"]
+        turn.cards.clear()
+        med = next((r["medication"] for r in sched if r["medication"].lower().split()[0] in t),
+                   sched[0]["medication"] if sched else "Metformin")
+        n = int(m.group(1)) if (m := re.search(r"(\d+)\s*(pills|tablets)", t)) else 60
+        said.append((await _call(client, turn, "record_refill", {**p, "medication": med, "pills": n}))["speech"])
+
+    elif re.search(r"\b(refill|running low|run out|supply|pills left|how many pills)\b", t):
+        said.append((await _call(client, turn, "get_refill_status", p))["speech"])
 
     elif re.search(r"\b(how('s| is) (mom|mum|margaret)|this week|summary|how has .* been)\b", t):
         said.append((await _call(client, turn, "get_wellbeing_summary", {**p, "days": 7}))["speech"])
@@ -161,7 +202,7 @@ async def _local_turn(client: Client, turn: Turn, text: str) -> None:
         taken = not re.search(r"\b(skip|skipped|didn'?t|forgot)\b", t)
         named = sorted({d["medication"] for d in sched if d["medication"].lower().split()[0] in t})
         if not named:  # "I took my morning pills" -> everything still open that's due around now
-            hour = time.localtime().tm_hour
+            hour = _hour()
             named = sorted({d["medication"] for d in sched if d["status"] in ("pending", "missed")
                             and abs(int(d["time"][:2]) - hour) <= 3}) or \
                 sorted({d["medication"] for d in sched if d["status"] in ("pending", "missed")})[:1]
@@ -190,8 +231,8 @@ async def _local_turn(client: Client, turn: Turn, text: str) -> None:
         said.append((await _call(client, turn, "whats_next", p))["speech"])
 
     else:
-        said.append("I can track your medicines, check in on how you're feeling, tell you what's next today, "
-                    "or let Priya and Dev know something.")
+        said.append("I can track your medicines and refills, check in on how you're feeling, read messages from "
+                    "your family, get you ready for Dr. Chen, or let Priya and Dev know something.")
     turn.speech = " ".join(said)
 
 
@@ -214,4 +255,15 @@ async def handle(text: str, session: str = "default") -> Turn:
                 await _local_turn(client, turn, text)
         else:
             await _local_turn(client, turn, text)
+    return turn
+
+
+async def nudge() -> Turn:
+    """Proactive turn: ask CareCircle (over MCP) whether Alexa+ should speak first."""
+    turn = Turn(brain="proactive")
+    async with Client(MCP_URL, mode="legacy") as client:
+        data = await _call(client, turn, "check_nudges", {"person": PERSON})
+    turn.speech = data.get("speech", "")
+    if not turn.speech:
+        turn.calls = []  # nothing to say: keep the MCP log quiet
     return turn
