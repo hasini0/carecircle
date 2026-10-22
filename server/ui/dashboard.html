@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CareCircle · Family</title>
+<style>
+  :root { --bg:#f6f4ef; --card:#fff; --ink:#1d2433; --muted:#6b7280; --line:#e7e2d8;
+          --ok:#1f8a5b; --warn:#c27c0e; --bad:#c2410c; --accent:#2f5d8a; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1d222a; --ink:#e8eaee; --muted:#9aa3af; --line:#2b313b;
+            --ok:#4cc38a; --warn:#e3a33b; --bad:#f07a4a; --accent:#7fb0e0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  header { padding:20px 16px 8px; max-width:960px; margin:auto; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:22px; letter-spacing:-.01em; }
+  header .sub { color:var(--muted); }
+  .live { margin-left:auto; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  .live i { width:8px; height:8px; border-radius:50%; background:var(--ok); display:inline-block; animation:p 2s infinite; }
+  @keyframes p { 50% { opacity:.3 } }
+  main { max-width:960px; margin:auto; padding:8px 16px 32px; display:grid; gap:14px;
+         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
+  .card h2 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; }
+  .big { font-size:40px; font-weight:700; letter-spacing:-.02em; }
+  .dose { display:flex; justify-content:space-between; padding:8px 0; border-top:1px solid var(--line); }
+  .dose:first-of-type { border-top:0; }
+  .pill { font-size:12px; padding:2px 8px; border-radius:99px; font-weight:600; white-space:nowrap; align-self:center; }
+  .taken { background:color-mix(in srgb, var(--ok) 15%, transparent); color:var(--ok); }
+  .pending { background:color-mix(in srgb, var(--accent) 15%, transparent); color:var(--accent); }
+  .missed, .skipped { background:color-mix(in srgb, var(--bad) 15%, transparent); color:var(--bad); }
+  .alert { padding:10px 12px; border-radius:10px; margin-top:8px; border-left:4px solid var(--warn);
+           background:color-mix(in srgb, var(--warn) 9%, transparent); }
+  .alert.high { border-color:var(--bad); background:color-mix(in srgb, var(--bad) 10%, transparent); }
+  .alert small { color:var(--muted); display:block; margin-top:2px; }
+  .bars { display:flex; gap:6px; align-items:flex-end; height:80px; margin-top:8px; }
+  .bars div { flex:1; background:var(--accent); border-radius:4px 4px 0 0; min-height:3px; opacity:.85; }
+  .labels { display:flex; gap:6px; font-size:11px; color:var(--muted); }
+  .labels span { flex:1; text-align:center; }
+  .muted { color:var(--muted); }
+  .empty { color:var(--muted); font-style:italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">CareCircle</h1><span class="sub" id="sub">Family view</span>
+  <span class="live"><i></i> live</span>
+</header>
+<main>
+  <section class="card"><h2>Medication adherence · 7 days</h2>
+    <div class="big" id="adh">–</div><div class="muted" id="adhSub"></div>
+    <div class="bars" id="adhBars"></div><div class="labels" id="adhLabels"></div></section>
+  <section class="card"><h2>Today's medicines</h2><div id="doses"></div></section>
+  <section class="card"><h2>Alerts sent to family</h2><div id="alerts"></div></section>
+  <section class="card"><h2>Mood · recent check-ins</h2>
+    <div class="bars" id="moodBars"></div><div class="labels" id="moodLabels"></div>
+    <div class="muted" id="lastNote" style="margin-top:10px"></div></section>
+  <section class="card"><h2>Coming up</h2><div id="appts"></div></section>
+</main>
+<script>
+const person = new URLSearchParams(location.search).get("person") || "Margaret";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const t12 = hhmm => { const [h,m] = hhmm.split(":").map(Number); return `${(h%12)||12}:${String(m).padStart(2,"0")} ${h<12?"AM":"PM"}`; };
+const ago = iso => { const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m/60)} h ago` : `${Math.round(m/1440)} d ago`; };
+
+function render(s) {
+  $("title").textContent = `${s.person}'s CareCircle`;
+  $("sub").textContent = s.family?.length ? `Shared with ${s.family.map(f => f.name).join(", ")}` : "Family view";
+  $("adh").textContent = `${s.adherence.pct}%`;
+  $("adhSub").textContent = `${s.adherence.taken} of ${s.adherence.due} doses taken`;
+  $("adhBars").innerHTML = s.adherence.per_day.map(d =>
+    `<div title="${d.date}: ${d.taken}/${d.due}" style="height:${d.due ? 100*d.taken/d.due : 0}%"></div>`).join("");
+  $("adhLabels").innerHTML = s.adherence.per_day.map(d =>
+    `<span>${new Date(d.date+"T12:00").toLocaleDateString(undefined,{weekday:"narrow"})}</span>`).join("");
+  $("doses").innerHTML = s.schedule.length ? s.schedule.map(d =>
+    `<div class="dose"><span><b>${esc(d.medication)}</b> <span class="muted">${esc(d.dose)} · ${t12(d.time)}</span></span>
+     <span class="pill ${d.status}">${d.status}</span></div>`).join("") : `<div class="empty">No medicines scheduled</div>`;
+  $("alerts").innerHTML = s.alerts.length ? s.alerts.slice(0,5).map(a =>
+    `<div class="alert ${a.urgency}">${esc(a.reason)}<small>${a.urgency} · to ${esc(a.recipients.join(", "))} · ${ago(a.at)}</small></div>`).join("")
+    : `<div class="empty">No alerts this week 🎉</div>`;
+  const cs = s.checkins.slice(-7);
+  $("moodBars").innerHTML = cs.map(c => `<div title="${c.mood}/5" style="height:${c.mood*20}%;background:${c.mood<=2?"var(--bad)":c.mood==3?"var(--warn)":"var(--ok)"}"></div>`).join("")
+    || `<span class="empty">No check-ins yet</span>`;
+  $("moodLabels").innerHTML = cs.map(c => `<span>${c.mood}</span>`).join("");
+  const last = s.checkins[s.checkins.length - 1];
+  $("lastNote").innerHTML = last?.notes ? `Last said: “${esc(last.notes)}” <span class="muted">(${ago(last.at)})</span>` : "";
+  $("appts").innerHTML = s.appointments.length ? s.appointments.map(a =>
+    `<div class="dose"><span><b>${esc(a.title)}</b> <span class="muted">${esc(a.location)}</span></span>
+     <span class="muted">${new Date(a.at).toLocaleString(undefined,{weekday:"short",hour:"numeric",minute:"2-digit"})}</span></div>`).join("")
+    : `<div class="empty">Nothing scheduled</div>`;
+}
+
+// Running inside an MCP Apps host: the host pushes the tool result to us.
+window.addEventListener("message", e => {
+  const m = e.data;
+  if (m?.method === "ui/notifications/tool-result" && m.params?.structuredContent) render(m.params.structuredContent);
+});
+
+// Standalone (family's phone / browser): poll the server.
+async function poll() {
+  try { const r = await fetch(`/api/state?person=${encodeURIComponent(person)}`); if (r.ok) render(await r.json()); } catch {}
+}
+if (location.protocol.startsWith("http")) { poll(); setInterval(poll, 2000); }
+</script>
+</body>
+</html>
