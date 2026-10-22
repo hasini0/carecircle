@@ -45,7 +45,7 @@ end up in hospital, and families end up either calling every day to ask "did you
 **What's next.** OAuth 2.1 per household, SNS SMS to every family member, multi-person households, and a real Alexa+ integration once self-hosted MCP is open to developers.
 
 ## Links
-- Live demo: `TODO https://carecircle-xxxx.onrender.com` (MCP endpoint: `/mcp`)
+- Live demo: https://carecircle-9d2k.onrender.com/ (MCP endpoint: `/mcp`)
 - Code repository: https://github.com/hasini0/carecircle (public, MIT)
 - Demo video (YouTube, public, under 3 min): `TODO`
 
