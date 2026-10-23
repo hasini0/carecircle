@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%23e5674b%22/%3E%3Cpath d=%22M16 25s-8-5-8-11.5a4.5 4.5 0 0 1 8-2.9 4.5 4.5 0 0 1 8 2.9C24 20 16 25 16 25z%22 fill=%22white%22/%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>CareCircle · Family</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -99,6 +100,9 @@
   .cal b { display:block; background:var(--brand); color:#fff; font-size:10.5px; letter-spacing:.08em; padding:2px 0; text-transform:uppercase; }
   .cal span { font:650 20px/30px Fraunces, serif; }
   .empty { color:var(--muted); font-size:14px; }
+  /* inside the phone mockup on the demo page: clear the notch */
+  .in-phone .app { padding-top:46px; }
+  .hero h1 small { display:block; font:600 12px Inter, sans-serif; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:2px; }
   /* MCP App mode: rendered inside the Alexa+ screen, landscape and glanceable */
   .app-mode .app { padding:10px; }
   .app-mode .top, .app-mode .compose-card, .app-mode .feed-card, .app-mode .appt-card { display:none; }
@@ -146,7 +150,9 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const person = new URLSearchParams(location.search).get("person") || "Margaret";
+const params = new URLSearchParams(location.search);
+const person = params.get("person") || "Margaret";
+if (params.get("frame") === "phone") document.body.classList.add("in-phone");
 const t12 = hhmm => { const [h,m] = hhmm.split(":").map(Number); return `${(h%12)||12}:${String(m).padStart(2,"0")} ${h<12?"AM":"PM"}`; };
 let serverNow = null;
 const nowMs = () => serverNow ? serverNow.getTime() : Date.now();
@@ -167,7 +173,7 @@ const spark = (vals, max, color) => vals.map(v => `<i style="height:${Math.max(6
 function render(s) {
   if (s.now) serverNow = new Date(s.now);
   const first = s.person.split(" ")[0];
-  $("name").textContent = `Mom · ${s.person}`;
+  $("name").innerHTML = `<small>Mom</small>${esc(s.person)}`;
   $("avatar").textContent = first[0];
   const hero = $("hero"); hero.className = `hero ${s.status || "ok"}`;
   $("status").innerHTML = { ok: `${I.check} All good`, watch: "● Keep an eye on her", attention: "● Needs attention" }[s.status || "ok"];

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%23e5674b%22/%3E%3Cpath d=%22M16 25s-8-5-8-11.5a4.5 4.5 0 0 1 8-2.9 4.5 4.5 0 0 1 8 2.9C24 20 16 25 16 25z%22 fill=%22white%22/%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CareCircle · Alexa+ that remembers</title>
 <meta name="description" content="A self-hosted MCP server that gives Alexa+ a memory for elder care: medicines, check-ins, refills and family alerts.">
@@ -204,7 +205,7 @@
     <h1>Alexa+ that <em>remembers</em>,<br>so families don't have to worry.</h1>
     <div>
       <p>Margaret is 78 and lives alone. She talks to Alexa the way she always has. CareCircle, a self-hosted MCP server, remembers her medicines, how she's feeling, and when her pills run low, and it decides <b>on its own</b> when Priya and Dev need to know.</p>
-      <div class="chips"><span class="tag">Self-hosted MCP · Streamable HTTP</span><span class="tag">MCP Apps</span><span class="tag">Memory across sessions</span><span class="tag">Autonomous escalation</span><span class="tag">Amazon Bedrock</span></div>
+      <div class="chips"><span class="tag">Self-hosted MCP · Streamable HTTP</span><span class="tag">MCP Apps</span><span class="tag">Memory across sessions</span><span class="tag">Autonomous escalation</span><span class="tag">Voice + screen</span></div>
     </div>
   </div>
 
@@ -247,7 +248,7 @@
 
     <div class="phone-col">
       <div class="label"><b>Priya's phone</b> · CareCircle family app</div>
-      <div class="phone"><iframe id="phone" src="/family" title="Family app"></iframe></div>
+      <div class="phone"><iframe id="phone" src="/family?frame=phone" title="Family app"></iframe></div>
       <div class="note">Send Mom a message from here: Alexa+ will tell her.</div>
     </div>
 
@@ -261,7 +262,7 @@
 
 <section class="how" id="how"><div class="wrap">
   <h2>How it works</h2>
-  <p>CareCircle is an MCP server that holds the memory and the judgment. Alexa+ (here, an agent running on Amazon Bedrock with a local fallback) is just a client. Any MCP-compatible assistant can connect to the same endpoint.</p>
+  <p>CareCircle is an MCP server that holds the memory and the judgment. Alexa+ (here, a simulated agent on a built-in local planner, with an optional Amazon Bedrock brain) is just a client. Any MCP-compatible assistant can connect to the same endpoint.</p>
   <div class="feat">
     <div class="f"><div class="fi">🧠</div><h3>Memory across sessions</h3><p>Doses, check-ins, refills and messages persist, so "how's Mom been this week?" has a real answer, not just the last thing she said.</p></div>
     <div class="f"><div class="fi">🚨</div><h3>Decides when to escalate</h3><p>Red-flag phrases (a fall, dizziness, chest pain), missed doses, low-mood or poor-sleep streaks and low supply each trigger an alert at the right urgency, to the right person, de-duplicated.</p></div>
@@ -473,12 +474,15 @@ if (SR) {
   rec = new SR(); rec.lang = "en-US"; rec.interimResults = true;
   rec.onresult = e => { const r = e.results[e.results.length-1]; const t = r[0].transcript.replace(/^alexa,?\s*/i, "");
     $("text").value = t; if (r.isFinal) ask(t); };
+  rec.onerror = () => { $("mic").classList.remove("on"); $("glow").className = "glowbar"; };
   rec.onend = () => { $("mic").classList.remove("on"); if ($("glow").className.includes("listen")) $("glow").className = "glowbar"; };
 }
 $("mic").onclick = () => {
   if (!rec) { $("text").focus(); $("text").placeholder = "Voice input needs Chrome. Type here instead…"; return; }
   try { speechSynthesis.cancel(); } catch {}
-  $("mic").classList.add("on"); $("glow").className = "glowbar listen"; rec.start();
+  if ($("mic").classList.contains("on")) { try { rec.stop(); } catch {} return; }  // second click = stop
+  $("mic").classList.add("on"); $("glow").className = "glowbar listen";
+  try { rec.start(); } catch { $("mic").classList.remove("on"); $("glow").className = "glowbar"; }
 };
 document.addEventListener("keydown", e => { if (e.code === "Space" && document.activeElement.tagName !== "INPUT") { e.preventDefault(); $("mic").click(); } });
 

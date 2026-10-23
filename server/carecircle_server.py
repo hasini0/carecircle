@@ -106,8 +106,14 @@ def log_medication(person: str, medication: str, taken: bool = True) -> dict[str
         r = store.log_dose(conn, person, medication, taken)
         remaining = [d for d in store.todays_schedule(conn, person) if d["status"] == "pending"]
         alerts = _auto_escalate(conn, person)
-    nxt = f" Next up: {remaining[0]['medication']} at {_fmt_time(remaining[0]['time'])}." if remaining else \
-        " That's everything for today."
+    with _db() as conn:
+        missed = [d for d in store.todays_schedule(conn, person) if d["status"] == "missed"]
+    if remaining:
+        nxt = f" Next up: {remaining[0]['medication']} at {_fmt_time(remaining[0]['time'])}."
+    elif missed:
+        nxt = f" You still have {missed[0]['medication']} from {_fmt_time(missed[0]['time'])} marked as missed."
+    else:
+        nxt = " That's everything for today."
     verb = "Logged" if taken else "Noted you skipped"
     return {
         "logged": r, "alerts_sent": alerts,
@@ -377,6 +383,14 @@ WEB_DIR = Path(__file__).parent.parent / "web"
 PERSON = os.environ.get("CARECIRCLE_PERSON", "Margaret")
 
 
+async def _json(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except Exception:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
 def _page(name: str) -> HTMLResponse:
     return HTMLResponse((WEB_DIR / name).read_text(), headers={"cache-control": "no-store"})
 
@@ -411,7 +425,7 @@ async def api_state(request: Request):
 
 @mcp.custom_route("/api/family/message", methods=["POST"])
 async def api_family_message(request: Request):
-    body = await request.json()
+    body = await _json(request)
     text = str(body.get("body", "")).strip()[:500]
     if not text:
         return JSONResponse({"error": "empty message"}, status_code=400)
@@ -423,7 +437,7 @@ async def api_family_message(request: Request):
 @mcp.custom_route("/api/ask", methods=["POST"])
 async def api_ask(request: Request):
     import agent
-    body = await request.json()
+    body = await _json(request)
     try:
         turn = await agent.handle(str(body.get("text", ""))[:500], str(body.get("session", "default"))[:64])
     except Exception as e:
@@ -452,8 +466,11 @@ async def api_info(request: Request):
 @mcp.custom_route("/api/demo/clock", methods=["POST"])
 async def api_demo_clock(request: Request):
     """Demo time travel: jump the care clock to a time of day (e.g. "20:00") or reset to real time."""
-    body = await request.json()
-    store.set_clock(body.get("to"))
+    body = await _json(request)
+    try:
+        store.set_clock(body.get("to") or None)
+    except (ValueError, TypeError):
+        return JSONResponse({"error": "use HH:MM, e.g. 20:00"}, status_code=400)
     return JSONResponse({"now": store._now().isoformat()})
 
 

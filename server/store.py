@@ -30,21 +30,34 @@ _clock_offset = timedelta(0)
 
 
 def set_clock(hhmm: str | None) -> None:
-    """Shift the care clock to a time of day today. Today's doses at or after that time are reopened,
-    so jumping to 20:00 really is "it's 8 PM and the evening dose is due"."""
+    """Shift the care clock to a time of day today, as if the day had gone normally until then.
+
+    Doses scheduled before that time are marked taken; doses at or after it are reopened (and can be
+    reminded again), so jumping to 20:00 means "it's 8 PM and the evening dose is due" whatever the
+    real time is where the server runs.
+    """
     global _clock_offset
     if not hhmm:
         _clock_offset = timedelta(0)
         return
     real = datetime.now()
-    target = datetime.combine(real.date(), datetime.strptime(hhmm, "%H:%M").time())
+    target = datetime.combine(real.date(), datetime.strptime(hhmm, "%H:%M").time())  # ValueError if bad
     _clock_offset = target - real
-    slot = target.strftime("%Y-%m-%dT%H:%M")
+    day, slot = real.date().isoformat(), target.strftime("%Y-%m-%dT%H:%M")
     conn = connect()
-    conn.execute("DELETE FROM dose_log WHERE scheduled_for>=? AND scheduled_for<?", (slot, f"{real.date()}T99"))
+    conn.execute("DELETE FROM dose_log WHERE scheduled_for>=? AND scheduled_for<?", (slot, f"{day}T99"))
     conn.execute("DELETE FROM reminders_sent WHERE scheduled_for>=?", (slot,))
     conn.execute("DELETE FROM alerts WHERE at>=?", (target.isoformat(),))
     conn.execute("DELETE FROM checkins WHERE at>=?", (target.isoformat(),))
+    for m in conn.execute("SELECT person, name, times FROM medications WHERE active=1").fetchall():
+        for t in json.loads(m["times"]):
+            s_for = f"{day}T{t}"
+            if s_for < slot and not conn.execute("SELECT 1 FROM dose_log WHERE person=? AND medication=? AND "
+                                                 "scheduled_for=?", (m["person"], m["name"], s_for)).fetchone():
+                conn.execute("INSERT INTO dose_log(person, medication, scheduled_for, status, logged_at) "
+                             "VALUES (?,?,?,?,?)", (m["person"], m["name"], s_for, "taken", f"{s_for}:00"))
+                conn.execute("INSERT OR IGNORE INTO reminders_sent(person, scheduled_for) VALUES (?,?)",
+                             (m["person"], s_for))
     conn.commit()
     conn.close()
 
