@@ -254,7 +254,7 @@
       </div>
       <div class="script" id="script"></div>
       <div class="demobar">Demo clock:
-        <button class="btn" data-clock="08:00">8:00 AM</button><button class="btn" data-clock="13:00">1:00 PM</button><button class="btn" data-clock="20:00">8:00 PM</button><button class="btn" data-clock="">Real time</button>
+        <button class="btn" data-clock="08:00">8:00 AM</button><button class="btn" data-clock="13:00">1:00 PM</button><button class="btn" data-clock="20:00">8:00 PM</button><button class="btn" data-clock="">Real time</button><button class="btn" id="plus15" title="Move the clock forward 15 minutes">+15 min</button>
         <span style="flex:1"></span><button class="btn" id="mute">🔊 Voice on</button><button class="btn" id="reset">↺ Reset demo</button>
       </div>
     </div>
@@ -278,7 +278,7 @@
   <p>CareCircle is an MCP server that holds the memory and the judgment. Alexa+ (here, a simulated agent on a built-in local planner, with an optional Amazon Bedrock brain) is just a client. Any MCP-compatible assistant can connect to the same endpoint.</p>
   <div class="feat">
     <div class="f"><div class="fi">🧠</div><h3>Memory across sessions</h3><p>Doses, check-ins, refills and messages persist, so "how's Mom been this week?" has a real answer, not just the last thing she said.</p></div>
-    <div class="f"><div class="fi">🚨</div><h3>Decides when to escalate</h3><p>Red-flag phrases (a fall, dizziness, chest pain), missed doses, low-mood or poor-sleep streaks and low supply each trigger an alert at the right urgency, to the right person, de-duplicated.</p></div>
+    <div class="f"><div class="fi">🚨</div><h3>Decides when to escalate</h3><p>Red-flag phrases (a fall, dizziness, chest pain), missed doses, low-mood or poor-sleep streaks and low supply each trigger an alert at the right urgency, to the right person, de-duplicated. If nobody taps "I'm on it" within 15 minutes, it escalates to everyone and a neighbour.</p></div>
     <div class="f"><div class="fi">⏰</div><h3>Speaks first</h3><p>When a dose comes due, or Priya sends a message, the device asks CareCircle over MCP and Alexa+ brings it up unprompted.</p></div>
     <div class="f"><div class="fi">🩺</div><h3>Ready for the doctor</h3><p>One request builds a visit brief: adherence, which doses get missed, mood, sleep, and symptoms in Margaret's own words.</p></div>
     <div class="f"><div class="fi">🖼️</div><h3>MCP App on screen</h3><p><code>show_care_dashboard</code> is bound to <code>ui://carecircle/dashboard.html</code>. The host reads it over MCP and renders it in a sandbox.</p></div>
@@ -314,6 +314,8 @@ const SVG = {
   pill:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="8.5" width="18" height="7" rx="3.5" transform="rotate(-45 12 12)"/><path d="M9.5 9.5l5 5"/></svg>',
   cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
   msg:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  help:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  siren:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 18v-6a5 5 0 0 1 10 0v6M5 18h14v3H5zM12 3v2M4.2 6.2l1.4 1.4M19.8 6.2l-1.4 1.4"/></svg>',
   heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
 };
 let clockOffset = 0, voice = true, idleTimer = null, info = {}, seenUnread = 0;
@@ -378,6 +380,8 @@ function card(c) {
         <div class="minibars">${c.per_day.map(d => `<i style="height:${d.due ? 100*d.taken/d.due : 0}%"></i>`).join("")}</div>
         ${c.average_mood ? `<div class="sr" style="margin-top:1cqw"><span>Average mood</span><span>${c.average_mood} / 5</span></div>` : ""}
         ${(c.alerts||[]).slice(0,2).map(a => `<div class="alertline">${esc(a.reason)}</div>`).join("")}</div>`;
+    case "ack": return `<div class="sc"><h4>${esc(c.title)}</h4><div class="alertline ok">✓ ${esc(c.by)} is on it${c.note ? `: “${esc(c.note)}”` : ""}</div></div>`;
+    case "escalation": return `<div class="sc"><h4>${esc(c.title)}</h4><div class="alertline">🚨 Urgent alert to ${esc(c.recipients.join(", "))}</div></div>`;
     case "alert": return `<div class="sc"><h4>${esc(c.title)}</h4><div class="alertline ok">📨 To ${esc((c.recipients||[]).join(" & "))}: ${esc(c.reason)}</div></div>`;
     case "messages": return c.messages.map(m => `<div class="sc"><h4>From ${esc(m.sender)}</h4><div class="msgq">“${esc(m.body)}”<small>${new Date(m.at).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})}</small></div></div>`).join("");
     case "refills": return `<div class="sc"><h4>${esc(c.title)}</h4>${c.refills.map(r => `<div class="sr"><span>${esc(r.medication)}</span><span class="st ${r.low ? "low" : "taken"}">${r.days_left} days</span></div>`).join("")}</div>`;
@@ -457,11 +461,23 @@ async function pollNudges() {
     const r = await fetch("/api/nudges").then(r => r.json());
     syncClock(r.now);
     const rem = (r.cards || []).find(c => c && c.type === "reminder");
+    const upd = (r.cards || []).find(c => c && (c.type === "ack" || c.type === "escalation"));
     const unread = r.calls?.[0]?.result?.unread_messages || 0;
     const newMsg = unread > seenUnread; seenUnread = unread;
-    if (!rem && !newMsg) return;  // only interrupt for a newly due dose or a new message
+    if (!rem && !newMsg && !upd) return;  // only interrupt for something new
     logCalls(r.calls, true);
-    if (rem) {
+    if (upd?.type === "ack") {
+      $("nudgeIcon").innerHTML = SVG.help; $("nudgeK").textContent = "Help is on the way";
+      $("nudgeT").textContent = `${upd.by} is on it${upd.note ? `: “${upd.note}”` : ""}`;
+      $("nudgeActs").innerHTML = `<button class="yes">Thank you</button><button class="no">Close</button>`;
+      $("nudgeActs").querySelector(".yes").onclick = hideNudge;
+    } else if (upd) {
+      $("nudgeIcon").innerHTML = SVG.siren; $("nudgeK").textContent = "Getting you help";
+      $("nudgeT").textContent = upd.new_contacts.length ? `Urgent alert sent, and ${upd.new_contacts.join(" and ")} was asked to check on you`
+                                                         : "Urgent alert sent to your family";
+      $("nudgeActs").innerHTML = `<button class="yes">I'm OK now</button><button class="no">Close</button>`;
+      $("nudgeActs").querySelector(".yes").onclick = () => ask("I'm feeling okay now, tell my family I'm fine");
+    } else if (rem) {
       const meds = rem.doses.map(d => d.medication);
       $("nudgeIcon").innerHTML = SVG.pill; $("nudgeK").textContent = `Reminder · ${t12(rem.doses[0].time)}`;
       $("nudgeT").textContent = `Time for your ${rem.doses.map(d => `${d.medication} ${d.dose}`).join(" and ")}`;
@@ -506,6 +522,10 @@ document.querySelectorAll("[data-clock]").forEach(b => b.onclick = async () => {
   document.querySelectorAll("[data-clock]").forEach(x => x.classList.toggle("active", x === b && !!b.dataset.clock));
   showHome(); setTimeout(pollNudges, 400);
 });
+$("plus15").onclick = async () => {
+  const r = await fetch("/api/demo/clock", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({advance: 15})}).then(r => r.json());
+  syncClock(r.now); tickClock(); setTimeout(pollNudges, 300);
+};
 $("reset").onclick = async () => {
   await fetch("/api/demo/reset", {method:"POST"}); seenUnread = 0;
   document.querySelectorAll("[data-clock]").forEach(x => x.classList.remove("active"));
@@ -520,7 +540,7 @@ fetch("/api/info").then(r => r.json()).then(i => {
   $("imeta").innerHTML = `endpoint <b>${esc(i.mcp_url)}</b><br>transport <b>Streamable HTTP</b> · protocol <b>${esc(i.protocol)}</b><br>brain <b id="brainv">${esc(i.brain)}</b>`;
   $("mcpurl").textContent = i.mcp_url; $("mcpurl2").textContent = `"${i.mcp_url}"`;
 });
-$("toolsList").innerHTML = ["whats_next","log_medication","daily_checkin","check_nudges","get_family_messages","get_refill_status","record_refill",
+$("toolsList").innerHTML = ["whats_next","log_medication","daily_checkin","check_nudges","get_family_messages","acknowledge_alert","get_refill_status","record_refill",
   "prepare_doctor_visit","get_wellbeing_summary","alert_family","show_care_dashboard","get_medication_schedule","add_medication","add_appointment","setup_person"]
   .map(t => `<code>${t}</code>`).join("");
 tickClock(); refreshHome();

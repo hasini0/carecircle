@@ -90,6 +90,46 @@ def test_webhook_channel_is_off_without_url(monkeypatch):
     assert notify.CHANNELS["webhook"].active() is False
 
 
+def test_escalation_only_contacts_skip_normal_alerts(conn):
+    r = store.send_alert(conn, "Margaret", "high", "dizzy", trigger="red_flag_phrase")
+    assert "Mrs. Lee" not in r["recipients"]
+
+
+# ---------------------------------------------------------------- acknowledgement and escalation
+
+def test_acknowledged_alert_is_announced_once_and_never_escalates(conn):
+    store.send_alert(conn, "Margaret", "high", "fell", trigger="red_flag_phrase")
+    ack = store.acknowledge_alert(conn, "Margaret", "priya", note="Calling you now")
+    assert ack["ack_by"] == "Priya" and ack["already"] is False
+    assert store.acknowledge_alert(conn, "Margaret", "Dev", alert_id=ack["alert_id"])["already"] is True
+    assert [a["ack_by"] for a in store.take_alert_updates(conn, "Margaret")["acknowledged"]] == ["Priya"]
+    assert store.take_alert_updates(conn, "Margaret")["acknowledged"] == []  # told once
+    store.advance_clock(60)
+    assert store.escalate_overdue(conn, "Margaret") == []
+
+
+def test_unanswered_high_alert_escalates_to_everyone_once(conn):
+    store.send_alert(conn, "Margaret", "high", "fell", trigger="red_flag_phrase")
+    assert store.escalate_overdue(conn, "Margaret") == []  # not yet
+    store.advance_clock(int(store.ESCALATE_AFTER.total_seconds() // 60))
+    [esc] = store.escalate_overdue(conn, "Margaret")
+    assert esc["recipients"] == ["Priya", "Dev", "Mrs. Lee"]
+    assert esc["new_contacts"] == ["Mrs. Lee"]
+    assert store.escalate_overdue(conn, "Margaret") == []  # only once
+    assert len(store.take_alert_updates(conn, "Margaret")["escalated"]) == 1
+
+
+def test_medium_alerts_do_not_escalate(conn):
+    store.send_alert(conn, "Margaret", "medium", "missed two doses", trigger="missed_doses")
+    store.advance_clock(120)
+    assert store.escalate_overdue(conn, "Margaret") == []
+
+
+def test_asking_for_help_is_a_red_flag(conn):
+    for text in ("I can't get up", "please help me"):
+        assert "red_flag_phrase" in triggers(store.assess_risk(conn, "Margaret", text))
+
+
 # ---------------------------------------------------------------- demo clock
 
 def test_clock_jump_plays_the_day_out_normally(conn):

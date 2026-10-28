@@ -53,6 +53,12 @@
   .banner.medium { background:var(--warn-soft); color:#7a4f10; }
   .banner svg { flex:none; margin-top:1px; }
   .banner small { display:block; opacity:.75; margin-top:3px; }
+  .banner.ok { background:var(--ok-soft); color:#1d5e3b; }
+  .banner .acts { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .banner .acts button { border:0; border-radius:99px; padding:8px 14px; font:600 13px Inter, sans-serif; cursor:pointer; background:var(--bad); color:#fff; }
+  .banner .acts button.ghost { background:#fff; color:#8e2a17; }
+  .banner .acts button:disabled { opacity:.5; }
+  .banner .esc { display:block; margin-top:6px; font-size:12.5px; font-weight:600; }
   @keyframes slide { from { transform:translateY(-6px); opacity:0 } }
 
   .stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
@@ -97,6 +103,7 @@
   .feed li:first-child { border-top:0; padding-top:0; }
   .ico { width:30px; height:30px; border-radius:10px; flex:none; display:grid; place-items:center; background:var(--sunk); color:var(--ink2); }
   .ico.dose { background:var(--ok-soft); color:var(--ok); } .ico.alert { background:var(--bad-soft); color:var(--bad); }
+  .ico.ack { background:var(--ok-soft); color:var(--ok); }
   .ico.checkin { background:var(--teal-soft); color:var(--teal); } .ico.message { background:var(--brand-soft); color:var(--brand); }
   .feed .when { color:var(--muted); font-size:12px; }
   .appt { display:flex; gap:12px; align-items:center; }
@@ -158,7 +165,7 @@ const params = new URLSearchParams(location.search);
 const person = params.get("person") || "Margaret";
 if (params.get("frame") === "phone") document.body.classList.add("in-phone");
 const t12 = hhmm => { const [h,m] = hhmm.split(":").map(Number); return `${(h%12)||12}:${String(m).padStart(2,"0")} ${h<12?"AM":"PM"}`; };
-let serverNow = null;
+let serverNow = null, inApp = false;
 const nowMs = () => serverNow ? serverNow.getTime() : Date.now();
 const ago = iso => { const m = Math.round((nowMs() - new Date(iso)) / 60000);
   return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m/60)} h ago` : `${Math.round(m/1440)} d ago`; };
@@ -179,12 +186,13 @@ function render(s) {
   const first = s.person.split(" ")[0];
   $("name").innerHTML = `<small>Mom</small>${esc(s.person)}`;
   $("avatar").textContent = first[0];
-  const hero = $("hero"); hero.className = `hero ${s.status || "ok"}`;
-  $("status").innerHTML = { ok: `${I.check} All good`, watch: "● Keep an eye on her", attention: "● Needs attention" }[s.status || "ok"];
+  const handled = s.status === "attention" && s.alerts.find(a => a.urgency === "high")?.ack_at;
+  const hero = $("hero"); hero.className = `hero ${handled ? "watch" : s.status || "ok"}`;
+  $("status").innerHTML = handled ? `${I.check} ${esc(s.alerts.find(a => a.urgency === "high").ack_by)} is on it`
+    : { ok: `${I.check} All good`, watch: "● Keep an eye on her", attention: "● Needs attention" }[s.status || "ok"];
   const latest = s.feed?.[0];
   $("lastSeen").textContent = latest ? `Last active ${ago(latest.at)} · ${s.family.map(f => f.name).join(" & ")} in the circle` : "";
-  const top = s.alerts.find(a => a.urgency !== "low" && nowMs() - new Date(a.at) < 864e5);
-  $("banner").innerHTML = top ? `<div class="banner ${top.urgency}">${I.warn}<div><b>${esc(top.reason)}</b><small>CareCircle alerted ${esc(top.recipients.join(" & "))} · ${ago(top.at)}</small></div></div>` : "";
+  $("banner").innerHTML = banner(s);
 
   $("adh").innerHTML = `${s.adherence.pct}<small>%</small>`;
   $("adhSpark").innerHTML = spark(s.adherence.per_day.map(d => d.due ? d.taken/d.due : 0), 1);
@@ -203,7 +211,7 @@ function render(s) {
       <span>${r.days_left} day${r.days_left === 1 ? "" : "s"} left${r.low ? " · refill" : ""}</span></div><div class="bar"><i style="width:${Math.min(100, r.days_left/30*100)}%"></i></div></div>`).join("")
     || `<div class="empty">No pill counts tracked</div>`;
 
-  const icon = { dose: I.pill, checkin: I.heart, alert: I.bell, message: I.msg };
+  const icon = { dose: I.pill, checkin: I.heart, alert: I.bell, message: I.msg, ack: I.check };
   $("feed").innerHTML = (s.feed || []).slice(0, 8).map(f => `<li><div class="ico ${f.kind}">${icon[f.kind]}</div>
       <div><div>${esc(f.text)}${f.kind === "message" ? (f.delivered ? " <span class='when'>· heard ✓</span>" : " <span class='when'>· waiting</span>") : ""}</div><div class="when">${ago(f.at)}</div></div></li>`).join("")
     || `<li class="empty">Nothing yet today</li>`;
@@ -218,11 +226,27 @@ function render(s) {
   $("updated").textContent = "live";
 }
 
+function banner(s) {
+  const top = s.alerts.find(a => a.urgency !== "low" && nowMs() - new Date(a.at) < 864e5);
+  if (!top) return "";
+  if (top.ack_at) return `<div class="banner ok">${I.check}<div><b>${esc(top.ack_by)} is on it</b>${top.ack_note ? ` · “${esc(top.ack_note)}”` : ""}
+      <small>${esc(top.reason)} · answered ${ago(top.ack_at)}. ${esc(s.person.split(" ")[0])} has been told help is coming.</small></div></div>`;
+  let esc_ = "";
+  if (top.escalated_at) esc_ = `<span class="esc">🚨 Escalated ${ago(top.escalated_at)}: nobody answered, so ${esc(top.recipients.join(", "))} got an urgent alert</span>`;
+  else if (top.urgency === "high") {
+    const left = Math.max(0, Math.ceil((new Date(top.at).getTime() + s.escalate_after_minutes * 6e4 - nowMs()) / 6e4));
+    const extra = (s.escalation_contacts || []).map(f => `${f.name} (${f.relation})`).join(", ");
+    esc_ = `<span class="esc">If nobody answers in ${left} min, CareCircle alerts everyone again${extra ? ` and ${esc(extra)}` : ""}</span>`;
+  }
+  const acts = !inApp ? `<div class="acts"><button data-ack="${top.id}" data-note="">I'm on it</button><button class="ghost" data-ack="${top.id}" data-note="Calling you now">Calling her now</button></div>` : "";
+  return `<div class="banner ${top.urgency}">${I.warn}<div><b>${esc(top.reason)}</b><small>CareCircle alerted ${esc(top.recipients.join(" & "))} · ${ago(top.at)}</small>${esc_}${acts}</div></div>`;
+}
+
 // MCP Apps mode: the host (Alexa+ screen) pushes the tool result to us; no network access needed.
 window.addEventListener("message", e => {
   const m = e.data;
   if (m?.method === "ui/notifications/tool-result" && m.params?.structuredContent) {
-    document.body.classList.add("app-mode"); render(m.params.structuredContent);
+    document.body.classList.add("app-mode"); inApp = true; render(m.params.structuredContent);
   }
 });
 
@@ -243,6 +267,13 @@ async function send(text) {
 if (location.protocol.startsWith("http")) {
   $("compose").onsubmit = e => { e.preventDefault(); send($("msg").value); };
   $("quick").onclick = e => { if (e.target.tagName === "BUTTON") send(e.target.textContent); };
+  $("banner").onclick = async e => {
+    const b = e.target.closest("[data-ack]"); if (!b) return;
+    $("banner").querySelectorAll("button").forEach(x => x.disabled = true);
+    await fetch("/api/family/ack", {method:"POST", headers:{"content-type":"application/json"},
+      body: JSON.stringify({person, by:"Priya", alert_id:Number(b.dataset.ack), note:b.dataset.note})});
+    poll();
+  };
   poll(); setInterval(poll, 2000);
 }
 </script>

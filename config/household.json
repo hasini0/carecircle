@@ -6,7 +6,8 @@
   },
   "family": [
     {"name": "Priya", "relation": "daughter", "contact": "+1-555-0142"},
-    {"name": "Dev", "relation": "son", "contact": "+1-555-0177"}
+    {"name": "Dev", "relation": "son", "contact": "+1-555-0177"},
+    {"name": "Mrs. Lee", "relation": "neighbour", "contact": "+1-555-0103", "escalation_only": true}
   ],
   "medications": [
     {"name": "Metformin", "dose": "500 mg", "times": ["08:00", "20:00"], "purpose": "blood sugar", "pills_left": 12},

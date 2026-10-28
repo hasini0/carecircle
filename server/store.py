@@ -14,6 +14,9 @@ from pathlib import Path
 DB_PATH = Path(os.environ.get("CARECIRCLE_DB", Path(__file__).parent.parent / "data" / "carecircle.db"))
 
 
+# A high-urgency alert nobody has answered by then goes to everyone again, including escalation-only contacts.
+ESCALATE_AFTER = timedelta(minutes=int(os.environ.get("CARECIRCLE_ESCALATE_MINUTES", "15")))
+
 
 # Demo "time travel": the care clock can be shifted so a recorded demo can jump to 8 PM dose time.
 _clock_offset = timedelta(0)
@@ -50,6 +53,12 @@ def set_clock(hhmm: str | None) -> None:
                              (m["person"], s_for))
     conn.commit()
     conn.close()
+
+
+def advance_clock(minutes: int) -> None:
+    """Move the care clock forward without touching the day's history (e.g. to show an escalation)."""
+    global _clock_offset
+    _clock_offset += timedelta(minutes=minutes)
 
 
 def _now() -> datetime:
@@ -95,6 +104,13 @@ def connect() -> sqlite3.Connection:
         );
         """
     )
+    # columns added after the first release; older databases get them on the fly
+    for table, col in [("family", "escalation_only INTEGER DEFAULT 0"), ("alerts", "ack_by TEXT"),
+                       ("alerts", "ack_at TEXT"), ("alerts", "ack_note TEXT"),
+                       ("alerts", "ack_announced INTEGER DEFAULT 0"), ("alerts", "escalated_at TEXT"),
+                       ("alerts", "escalation_announced INTEGER DEFAULT 0")]:
+        if col.split()[0] not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
     return conn
 
 
@@ -113,15 +129,18 @@ def setup_person(conn, name: str, age: int | None, notes: str, family: list[dict
     conn.execute("DELETE FROM family WHERE person=?", (name,))
     for f in family:
         conn.execute(
-            "INSERT INTO family(person, name, relation, contact) VALUES (?,?,?,?)",
-            (name, f.get("name"), f.get("relation", "family"), f.get("contact", "")),
+            "INSERT INTO family(person, name, relation, contact, escalation_only) VALUES (?,?,?,?,?)",
+            (name, f.get("name"), f.get("relation", "family"), f.get("contact", ""), int(bool(f.get("escalation_only")))),
         )
     conn.commit()
     return {"person": name, "family_count": len(family)}
 
 
-def family_of(conn, person: str) -> list[dict]:
-    return [dict(r) for r in conn.execute("SELECT name, relation, contact FROM family WHERE person=?", (person,))]
+def family_of(conn, person: str, include_escalation: bool = False) -> list[dict]:
+    """The care circle. Escalation-only contacts (e.g. a neighbour) are left out unless asked for."""
+    rows = [{**dict(r), "escalation_only": bool(r["escalation_only"])} for r in conn.execute(
+        "SELECT name, relation, contact, escalation_only FROM family WHERE person=?", (person,))]
+    return rows if include_escalation else [r for r in rows if not r["escalation_only"]]
 
 
 # ---------- medications ----------
@@ -272,7 +291,8 @@ def send_alert(conn, person: str, urgency: str, reason: str, trigger: str = "man
         return {"deduplicated": True, "reason": reason}
     fam = family_of(conn, person)
     if only_to:
-        fam = [f for f in fam if only_to.lower() in (f["name"].lower(), f["relation"].lower())] or fam
+        fam = [f for f in family_of(conn, person, include_escalation=True)
+               if only_to.lower() in (f["name"].lower(), f["relation"].lower())] or fam
     recipients = [f["name"] for f in fam] if urgency != "low" else [f["name"] for f in fam[:1]]
     conn.execute(
         "INSERT INTO alerts(person, at, urgency, reason, recipients, trigger) VALUES (?,?,?,?,?,?)",
@@ -287,9 +307,69 @@ def send_alert(conn, person: str, urgency: str, reason: str, trigger: str = "man
 
 def recent_alerts(conn, person: str, days: int = 7) -> list[dict]:
     since = (_now() - timedelta(days=days)).isoformat()
-    rows = conn.execute("SELECT at, urgency, reason, recipients, trigger FROM alerts WHERE person=? AND at>=? "
-                        "ORDER BY at DESC", (person, since))
+    rows = conn.execute("SELECT id, at, urgency, reason, recipients, trigger, ack_by, ack_at, ack_note, escalated_at "
+                        "FROM alerts WHERE person=? AND at>=? ORDER BY at DESC", (person, since))
     return [{**dict(r), "recipients": json.loads(r["recipients"])} for r in rows]
+
+
+def acknowledge_alert(conn, person: str, by: str, alert_id: int | None = None, note: str = "") -> dict:
+    """A family member says "I'm on it". Defaults to the latest unanswered high or medium alert."""
+    person = ensure_person(conn, person)
+    if alert_id is None:
+        row = conn.execute("SELECT id FROM alerts WHERE person=? AND ack_at IS NULL AND urgency IN ('high','medium') "
+                           "ORDER BY at DESC LIMIT 1", (person,)).fetchone()
+        if not row:
+            raise ValueError(f"There's no open alert for {person} to acknowledge.")
+        alert_id = row["id"]
+    row = conn.execute("SELECT * FROM alerts WHERE id=? AND person=?", (alert_id, person)).fetchone()
+    if not row:
+        raise ValueError(f"Alert {alert_id} not found for {person}.")
+    if row["ack_at"]:
+        return {"alert_id": alert_id, "already": True, "ack_by": row["ack_by"], "reason": row["reason"]}
+    by = by.strip().title()
+    conn.execute("UPDATE alerts SET ack_by=?, ack_at=?, ack_note=? WHERE id=?",
+                 (by, _now().isoformat(), note.strip()[:200], alert_id))
+    conn.commit()
+    return {"alert_id": alert_id, "already": False, "ack_by": by, "note": note.strip()[:200], "reason": row["reason"]}
+
+
+def escalate_overdue(conn, person: str) -> list[dict]:
+    """High-urgency alerts nobody acknowledged within ESCALATE_AFTER go to the whole circle again,
+    escalation-only contacts included, so someone nearby can check in person."""
+    person = ensure_person(conn, person)
+    cutoff = (_now() - ESCALATE_AFTER).isoformat()
+    rows = conn.execute("SELECT id, at, reason FROM alerts WHERE person=? AND urgency='high' AND ack_at IS NULL "
+                        "AND escalated_at IS NULL AND at<=? AND at>=?",
+                        (person, cutoff, (_now() - timedelta(hours=24)).isoformat())).fetchall()
+    if not rows:
+        return []
+    fam = family_of(conn, person, include_escalation=True)
+    minutes = int(ESCALATE_AFTER.total_seconds() // 60)
+    from notify import deliver
+    out = []
+    for r in rows:
+        reason = f"No one has responded in {minutes} minutes. {r['reason']}"
+        conn.execute("UPDATE alerts SET escalated_at=?, recipients=? WHERE id=?",
+                     (_now().isoformat(), json.dumps([f["name"] for f in fam]), r["id"]))
+        out.append({"alert_id": r["id"], "reason": reason, "recipients": [f["name"] for f in fam],
+                    "new_contacts": [f["name"] for f in fam if f["escalation_only"]],
+                    "delivery": deliver(fam, person, "urgent", reason)})
+    conn.commit()
+    return out
+
+
+def take_alert_updates(conn, person: str) -> dict:
+    """Acknowledgements and escalations the person hasn't been told about yet; marks them told."""
+    person = ensure_person(conn, person)
+    acks = [dict(r) for r in conn.execute(
+        "SELECT id, ack_by, ack_note FROM alerts WHERE person=? AND ack_at IS NOT NULL AND ack_announced=0", (person,))]
+    escs = [dict(r) for r in conn.execute(
+        "SELECT id, recipients FROM alerts WHERE person=? AND escalated_at IS NOT NULL AND escalation_announced=0 "
+        "AND ack_at IS NULL", (person,))]
+    conn.execute("UPDATE alerts SET ack_announced=1 WHERE person=? AND ack_at IS NOT NULL", (person,))
+    conn.execute("UPDATE alerts SET escalation_announced=1 WHERE person=? AND escalated_at IS NOT NULL", (person,))
+    conn.commit()
+    return {"acknowledged": acks, "escalated": [{**e, "recipients": json.loads(e["recipients"])} for e in escs]}
 
 
 # ---------- appointments ----------
@@ -408,8 +488,15 @@ def activity_feed(conn, person: str, limit: int = 25) -> list[dict]:
     for r in conn.execute("SELECT at, mood, notes FROM checkins WHERE person=? AND at>=?", (person, since)):
         items.append({"at": r["at"], "kind": "checkin", "mood": r["mood"],
                       "text": f"Check-in · mood {r['mood']}/5" + (f" · “{r['notes']}”" if r["notes"] else "")})
-    for r in conn.execute("SELECT at, urgency, reason FROM alerts WHERE person=? AND at>=?", (person, since)):
+    for r in conn.execute("SELECT at, urgency, reason, ack_by, ack_at, ack_note, escalated_at, recipients "
+                          "FROM alerts WHERE person=? AND at>=?", (person, since)):
         items.append({"at": r["at"], "kind": "alert", "urgency": r["urgency"], "text": r["reason"]})
+        if r["escalated_at"]:
+            items.append({"at": r["escalated_at"], "kind": "alert", "urgency": "urgent",
+                          "text": f"Escalated: no reply in time, alerted {', '.join(json.loads(r['recipients']))}"})
+        if r["ack_at"]:
+            items.append({"at": r["ack_at"], "kind": "ack",
+                          "text": f"{r['ack_by']} is on it" + (f": “{r['ack_note']}”" if r["ack_note"] else "")})
     for r in conn.execute("SELECT at, sender, body, delivered_at FROM messages WHERE person=? AND at>=?",
                           (person, since)):
         items.append({"at": r["at"], "kind": "message", "delivered": r["delivered_at"] is not None,

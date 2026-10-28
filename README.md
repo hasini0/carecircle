@@ -13,6 +13,16 @@ time, and **decides on its own** when her daughter and son need to know.
 
 ![architecture](docs/architecture.svg)
 
+## Screenshots
+
+| Alexa+ speaks first | Family alerted automatically | Two-way family messages |
+|---|---|---|
+| ![](screenshots/1-proactive-reminder.png) | ![](screenshots/2-auto-alert-family.png) | ![](screenshots/3-family-message.png) |
+
+| Doctor-visit brief | Family dashboard |
+|---|---|
+| ![](screenshots/4-doctor-brief.png) | ![](screenshots/5-mcp-app-dashboard.png) |
+
 ## Why
 
 About 1 in 4 adults over 65 lives alone, and missed medication is one of the most common reasons older adults end
@@ -26,6 +36,8 @@ assistant is already in the kitchen. It needs memory, timing and judgment.
 | 8:00 PM, nobody said anything | `check_nudges` | **Alexa+ speaks first:** "Margaret, it's time for your Metformin." Each dose is reminded once |
 | "I just took my Metformin" | `log_medication` | Logged against the right dose; supply drops to 5 days, so **Priya is asked to pick up a refill** |
 | "I'm a bit dizzy and only slept 4 hours" | `daily_checkin` | Risk engine flags a red-flag phrase and **alerts Priya & Dev at high urgency**; her phone turns red |
+| Priya taps **"I'm on it"** on the alert | `acknowledge_alert` | **Margaret hears "Priya got my message and is on it"**, so she knows help is coming |
+| Nobody answers a high alert for 15 min | `check_nudges` | **Escalates on its own:** urgent alert to everyone plus Mrs. Lee next door; Alexa+ tells Margaret |
 | Priya types "Call you at 7?" in the app | `get_family_messages` | The device announces a new message, Alexa+ reads it out, and Priya gets a "heard ✓" receipt |
 | "Get me ready for Dr. Chen" | `prepare_doctor_visit` | Visit brief: adherence, missed doses per medicine, mood and sleep, symptoms in her own words |
 | "Show me the dashboard" | `show_care_dashboard` | An **MCP App**: the host reads `ui://carecircle/dashboard.html` over MCP and renders it |
@@ -38,7 +50,7 @@ After every dose and check-in, CareCircle decides by itself whether to escalate:
 
 | Signal | Urgency | Who hears |
 |---|---|---|
-| Red-flag phrase: fall, dizziness, chest pain, confusion, short of breath | high | everyone |
+| Red-flag phrase: fall, can't get up, dizziness, chest pain, confusion, short of breath, "help me" | high | everyone |
 | 2+ missed or skipped doses today | medium | everyone |
 | Low mood two check-ins in a row | medium | everyone |
 | Under 5 h sleep two nights running | low | one person |
@@ -48,9 +60,14 @@ The same trigger is de-duplicated for 6 hours so families aren't spammed. Everyt
 memory survives sessions, devices and restarts. Each rule is a small plug-in function, and new ones can be added
 without touching the engine (see [Extend it](#extend-it)).
 
+**Nobody answering is a signal too.** A high-urgency alert waits for a family member to tap "I'm on it" (or for any
+agent to call `acknowledge_alert`). The moment someone does, Alexa+ tells Margaret who is coming. If nobody answers
+within 15 minutes (`CARECIRCLE_ESCALATE_MINUTES`), CareCircle re-sends it as urgent to the whole circle, including
+**escalation-only contacts** like a neighbour who can be at the door in two minutes, and tells Margaret what it did.
+
 ## MCP surface
 
-- **15 tools:** `whats_next`, `log_medication`, `daily_checkin`, `check_nudges`, `get_family_messages`,
+- **16 tools:** `whats_next`, `log_medication`, `daily_checkin`, `check_nudges`, `acknowledge_alert`, `get_family_messages`,
   `get_refill_status`, `record_refill`, `prepare_doctor_visit`, `get_wellbeing_summary`, `alert_family`,
   `show_care_dashboard`, `get_medication_schedule`, `add_medication`, `add_appointment`, `setup_person`
 - **MCP Apps extension** (`io.modelcontextprotocol/ui`): `show_care_dashboard` → `ui://carecircle/dashboard.html`
@@ -75,7 +92,8 @@ Then open **http://localhost:8000**. The live demo page shows three things side 
 - **Priya's phone:** the CareCircle family app, updating live (also at `/family`)
 - **Under the hood:** every MCP request, live, with arguments, latency and results
 
-The **demo clock** buttons (8 AM / 1 PM / 8 PM) shift CareCircle's clock so reminders fire on cue. **Reset demo**
+The **demo clock** buttons (8 AM / 1 PM / 8 PM) shift CareCircle's clock so reminders fire on cue, and **+15 min**
+skips ahead to show an unanswered alert escalating. **Reset demo**
 restores a fresh week of history.
 
 MCP endpoint: `http://127.0.0.1:8000/mcp`. Use `127.0.0.1` rather than `localhost` for MCP clients: some
@@ -147,7 +165,7 @@ custom alert channels, the demo clock, supply countdown and voice intent routing
 ## Project layout
 
 ```
-server/carecircle_server.py   MCP server: 15 tools, MCP App, resources, prompt, website + APIs (one process)
+server/carecircle_server.py   MCP server: 16 tools, MCP App, resources, prompt, website + APIs (one process)
 server/rules.py               risk rules: a registry of small @rule functions
 server/store.py               SQLite memory, reminders, refills, messages, doctor brief
 server/notify.py              alert channels: outbox, webhook, Amazon SNS (@channel registry)

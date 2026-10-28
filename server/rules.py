@@ -89,10 +89,13 @@ RED_FLAGS = {
     "can't breathe": "reported trouble breathing",
     "short of breath": "reported shortness of breath",
     "confused": "reported confusion",
+    "can't get up": "can't get up",
+    "need help": "asked for help",
+    "help me": "asked for help",
 }
 
 
-@rule("red_flag_phrase", "A worrying phrase (fall, dizziness, chest pain…) in what the person just said")
+@rule("red_flag_phrase", "A worrying phrase (fall, dizziness, chest pain, help me…) in what the person just said")
 def red_flag_phrase(ctx: RuleContext) -> list[Finding]:
     text = ctx.latest_notes.lower()
     for word, reason in RED_FLAGS.items():

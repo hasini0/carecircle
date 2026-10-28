@@ -225,6 +225,18 @@ def alert_family(person: str, reason: str, urgency: Literal["low", "medium", "hi
                      "recipients": r.get("recipients", [])}}
 
 
+@mcp.tool(title="Acknowledge an alert")
+def acknowledge_alert(person: str, by: str, note: str = "", alert_id: int | None = None) -> dict[str, Any]:
+    """A family member answers an alert: "I'm on it". `by` is their name, `note` an optional line for the person
+    (e.g. "Calling you now"). Defaults to the latest open alert. Stops the alert from escalating, and Alexa+ tells
+    the person that help is coming."""
+    with _db() as conn:
+        r = store.acknowledge_alert(conn, person, by, alert_id, note)
+    speech = (f"{r['ack_by']} already has this one." if r["already"]
+              else f"Thanks {r['ack_by']}. I'll let {_first_name(person)} know you're on it.")
+    return {**r, "speech": speech}
+
+
 @mcp.tool(title="Read messages from family")
 def get_family_messages(person: str) -> dict[str, Any]:
     """Messages family members sent from the CareCircle app. Reading them marks them delivered,
@@ -240,20 +252,40 @@ def get_family_messages(person: str) -> dict[str, Any]:
 
 @mcp.tool(title="Proactive nudges")
 def check_nudges(person: str) -> dict[str, Any]:
-    """What Alexa+ should bring up unprompted right now: doses that just came due (each reminded once)
-    and unread family messages. Screen devices poll this to speak first."""
+    """What Alexa+ should bring up unprompted right now: doses that just came due (each reminded once),
+    unread family messages, a family member answering an alert, and alerts that escalated because nobody
+    answered. Screen devices poll this to speak first."""
     with _db() as conn:
+        escalated_now = store.escalate_overdue(conn, person)
+        updates = store.take_alert_updates(conn, person)
         due = store.due_reminders(conn, person)
         unread = store.pending_message_count(conn, person)
-    parts = []
+    name = _first_name(person)
+    parts, card = [], None
+    if updates["acknowledged"]:
+        a = updates["acknowledged"][0]
+        parts.append(f"{name}, {a['ack_by']} got my message and is on it."
+                     + (f" {a['ack_by']} says: {a['ack_note'].rstrip('.!?')}." if a["ack_note"] else ""))
+        card = {"type": "ack", "title": "Help is on the way", "by": a["ack_by"], "note": a["ack_note"]}
+    elif updates["escalated"]:
+        e = updates["escalated"][0]
+        new = [n for n in e["recipients"] if n not in {f["name"] for f in _family(person)}]
+        parts.append(f"{name}, I haven't heard back from your family yet, so I've sent everyone an urgent alert"
+                     + (f" and asked {' and '.join(new)} to come and check on you" if new else "")
+                     + ". If this is an emergency, call 911.")
+        card = {"type": "escalation", "title": "Getting you help", "recipients": e["recipients"], "new_contacts": new}
+    parts = parts[:1]
     if due:
         meds = " and ".join(f"{d['medication']} {d['dose']}" for d in due)
         parts.append(f"{_first_name(person)}, it's time for your {meds}.")
     if unread:
         parts.append(f"You have {'a new message' if unread == 1 else f'{unread} new messages'} from family. "
                      "Want me to read it?")
-    return {"due_doses": due, "unread_messages": unread, "speech": " ".join(parts),
-            "card": {"type": "reminder", "title": "Time for your medicine", "doses": due} if due else None}
+    if due and not card:
+        card = {"type": "reminder", "title": "Time for your medicine", "doses": due}
+    return {"due_doses": due, "unread_messages": unread, "acknowledged": updates["acknowledged"],
+            "escalated": updates["escalated"], "escalated_now": len(escalated_now), "speech": " ".join(parts),
+            "card": card}
 
 
 @mcp.tool(title="Refill status")
@@ -333,13 +365,19 @@ def _auto_escalate(conn, person: str, notes: str = "") -> list[dict]:
     return sent
 
 
+def _family(person: str) -> list[dict]:
+    with _db() as conn:
+        return store.family_of(conn, store.ensure_person(conn, person))
+
+
 def _alert_speech(alerts: list[dict]) -> str:
     if not alerts:
         return ""
     who = sorted({n for a in alerts for n in a["recipients"]})
     names = " and ".join(who) if len(who) <= 2 else ", ".join(who[:-1]) + " and " + who[-1]
     if any(a["urgency"] == "high" for a in alerts):
-        return f" I've let {names} know right away so someone can check on you."
+        return (f" I've let {names} know right away so someone can check on you. I'll tell you as soon as one of "
+                "them answers.")
     if all(a.get("trigger", "").startswith("refill_") for a in alerts):
         med = alerts[0]["trigger"].removeprefix("refill_").title()
         return f" You're running low on {med}, so I've asked {names} to pick up a refill."
@@ -371,6 +409,9 @@ def _state(person: str) -> dict[str, Any]:
             "alerts": alerts,
             "appointments": store.upcoming_appointments(conn, person, 14),
             "family": store.family_of(conn, person),
+            "escalation_contacts": [f for f in store.family_of(conn, person, include_escalation=True)
+                                    if f["escalation_only"]],
+            "escalate_after_minutes": int(store.ESCALATE_AFTER.total_seconds() // 60),
             "refills": store.refill_status(conn, person),
             "feed": store.activity_feed(conn, person),
         }
@@ -436,8 +477,11 @@ async def health(_: Request):
 
 @mcp.custom_route("/api/state", methods=["GET"])
 async def api_state(request: Request):
+    person = request.query_params.get("person", PERSON)
     try:
-        return JSONResponse(_state(request.query_params.get("person", PERSON)))
+        with _db() as conn:  # the family app's poll also drives escalation, so it happens even with no device
+            store.escalate_overdue(conn, person)
+        return JSONResponse(_state(person))
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
 
@@ -450,6 +494,20 @@ async def api_family_message(request: Request):
         return JSONResponse({"error": "empty message"}, status_code=400)
     with _db() as conn:
         r = store.send_family_message(conn, body.get("person", PERSON), str(body.get("sender", "Priya"))[:40], text)
+    return JSONResponse(r)
+
+
+@mcp.custom_route("/api/family/ack", methods=["POST"])
+async def api_family_ack(request: Request):
+    body = await _json(request)
+    alert_id = body.get("alert_id")
+    try:
+        with _db() as conn:
+            r = store.acknowledge_alert(conn, body.get("person", PERSON), str(body.get("by", "Priya"))[:40],
+                                        int(alert_id) if alert_id is not None else None,
+                                        str(body.get("note", ""))[:200])
+    except (ValueError, TypeError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
     return JSONResponse(r)
 
 
@@ -484,10 +542,14 @@ async def api_info(request: Request):
 
 @mcp.custom_route("/api/demo/clock", methods=["POST"])
 async def api_demo_clock(request: Request):
-    """Demo time travel: jump the care clock to a time of day (e.g. "20:00") or reset to real time."""
+    """Demo time travel: jump the care clock to a time of day (e.g. "20:00"), move it forward
+    {"advance": minutes}, or reset to real time."""
     body = await _json(request)
     try:
-        store.set_clock(body.get("to") or None)
+        if body.get("advance") is not None:
+            store.advance_clock(max(0, min(240, int(body["advance"]))))
+        else:
+            store.set_clock(body.get("to") or None)
     except (ValueError, TypeError):
         return JSONResponse({"error": "use HH:MM, e.g. 20:00"}, status_code=400)
     return JSONResponse({"now": store._now().isoformat()})
