@@ -13,16 +13,6 @@ from pathlib import Path
 
 DB_PATH = Path(os.environ.get("CARECIRCLE_DB", Path(__file__).parent.parent / "data" / "carecircle.db"))
 
-# Words in a check-in that should escalate straight to family, no waiting for trends.
-RED_FLAGS = {
-    "fell": "reported a fall",
-    "fall": "reported a fall",
-    "chest pain": "reported chest pain",
-    "dizzy": "reported dizziness",
-    "can't breathe": "reported trouble breathing",
-    "short of breath": "reported shortness of breath",
-    "confused": "reported confusion",
-}
 
 
 # Demo "time travel": the care clock can be shifted so a recorded demo can jump to 8 PM dose time.
@@ -265,42 +255,9 @@ def recent_checkins(conn, person: str, days: int = 7) -> list[dict]:
 
 
 def assess_risk(conn, person: str, latest_notes: str = "") -> list[dict]:
-    """Rules that decide on their own whether family should hear about something.
-
-    Returns a list of {urgency, reason, trigger}. Empty list = all good.
-    """
-    person = ensure_person(conn, person)
-    findings = []
-
-    text = latest_notes.lower()
-    for word, reason in RED_FLAGS.items():
-        if word in text:
-            findings.append({"urgency": "high", "reason": f"{person} {reason}: \"{latest_notes}\"",
-                             "trigger": "red_flag_phrase"})
-            break
-
-    missed = [d for d in todays_schedule(conn, person) if d["status"] in ("missed", "skipped")]
-    if len(missed) >= 2:
-        names = ", ".join(f"{d['medication']} ({d['time']})" for d in missed)
-        findings.append({"urgency": "medium", "reason": f"{person} has missed {len(missed)} doses today: {names}",
-                         "trigger": "missed_doses"})
-
-    moods = [c["mood"] for c in recent_checkins(conn, person, days=3)]
-    if len(moods) >= 2 and all(m <= 2 for m in moods[-2:]):
-        findings.append({"urgency": "medium", "reason": f"{person}'s mood has been low ({moods[-2]}/5, {moods[-1]}/5) "
-                         "in the last two check-ins", "trigger": "low_mood_trend"})
-
-    for r in refill_status(conn, person):
-        if r["low"]:
-            findings.append({"urgency": "low", "reason": f"{person}'s {r['medication']} runs out in {r['days_left']} "
-                             f"day{'s' * (r['days_left'] != 1)} ({r['pills_left']} left) - time to order a refill",
-                             "trigger": f"refill_{r['medication'].lower()}"})
-
-    sleeps = [c["sleep_hours"] for c in recent_checkins(conn, person, days=3) if c["sleep_hours"] is not None]
-    if len(sleeps) >= 2 and all(s < 5 for s in sleeps[-2:]):
-        findings.append({"urgency": "low", "reason": f"{person} has slept under 5 hours two nights running",
-                         "trigger": "poor_sleep_trend"})
-    return findings
+    """Run the risk rules (server/rules.py). Returns a list of {urgency, reason, trigger}; empty = all good."""
+    import rules  # local import: rules.py imports this module
+    return rules.evaluate(conn, ensure_person(conn, person), latest_notes)
 
 
 def send_alert(conn, person: str, urgency: str, reason: str, trigger: str = "manual",
@@ -416,6 +373,7 @@ def doctor_summary(conn, person: str, days: int = 30) -> dict:
     moods = [c["mood"] for c in checks]
     sleeps = [c["sleep_hours"] for c in checks if c["sleep_hours"] is not None]
     pains = [c["pain"] for c in checks if c["pain"] is not None]
+    from rules import RED_FLAGS
     flagged = [c for c in checks if any(w in (c["notes"] or "").lower() for w in RED_FLAGS)]
     missed_by_med: dict[str, int] = {}
     today = _now().date()

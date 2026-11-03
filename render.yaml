@@ -14,3 +14,7 @@ services:
         value: 3.12.9
       - key: TZ
         value: America/Los_Angeles
+      - key: CARECIRCLE_BRAIN
+        value: local
+      - key: AWS_EC2_METADATA_DISABLED
+        value: "true"

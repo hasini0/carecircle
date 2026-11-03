@@ -9,17 +9,21 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg:#f6f2ec; --surface:#ffffff; --sunk:#f1ebe3; --ink:#1d2330; --ink2:#4a5263; --muted:#8a8f9c; --line:#e9e1d6;
-    --brand:#e5674b; --brand-soft:#fde9e3; --teal:#2d6f69; --teal-soft:#e2f0ee;
+    --bg:#f7f2eb; --surface:#ffffff; --sunk:#f4eee6; --ink:#161e2e; --ink2:#454e66; --muted:#878c9b; --line:#ece3d8;
+    --brand:#e2553a; --brand-soft:#fde8e0; --brand-grad:linear-gradient(135deg, #f0784a 0%, #e2553a 55%, #c9402c 100%);
+    --teal:#13706a; --teal-soft:#dff0ec;
     --ok:#2f8f5b; --ok-soft:#e3f3ea; --warn:#b7791f; --warn-soft:#fbf0dc; --bad:#d6452b; --bad-soft:#fde6e1;
     --r:18px; --shadow:0 1px 2px rgba(29,35,48,.05), 0 6px 20px rgba(29,35,48,.06);
   }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html, body { margin:0; background:var(--bg); color:var(--ink); }
+  html { background:var(--bg); }
+  body { margin:0; color:var(--ink); min-height:100vh;
+         background:radial-gradient(520px 320px at 0% 0%, rgba(243,154,76,.16), transparent 65%),
+                    radial-gradient(480px 320px at 100% 0%, rgba(19,112,106,.10), transparent 60%), var(--bg); }
   body { font:15px/1.45 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing:antialiased; }
   .app { max-width:1100px; margin:0 auto; padding:14px 16px 28px; }
   .top { display:flex; align-items:center; gap:10px; padding:6px 2px 14px; }
-  .logo { width:30px; height:30px; border-radius:10px; background:var(--brand); display:grid; place-items:center; color:#fff; }
+  .logo { width:30px; height:30px; border-radius:10px; background:var(--brand-grad); box-shadow:0 5px 12px -5px rgba(226,85,58,.6); display:grid; place-items:center; color:#fff; }
   .top .hi { font-size:13px; color:var(--muted); line-height:1.2; }
   .top .hi b { display:block; color:var(--ink); font-size:16px; }
   .top .live { margin-left:auto; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; }
@@ -35,7 +39,7 @@
 
   .hero { display:flex; gap:14px; align-items:center; }
   .avatar { width:58px; height:58px; border-radius:50%; flex:none; display:grid; place-items:center; font:650 22px Fraunces, serif; color:#fff;
-            background:linear-gradient(135deg, #f0956f, #d65a3f); box-shadow:0 0 0 3px #fff, 0 0 0 5px var(--ok); }
+            background:linear-gradient(135deg, #f39a6a, #e2553a 60%, #c9402c); box-shadow:0 0 0 3px #fff, 0 0 0 5px var(--ok); }
   .hero.watch .avatar { box-shadow:0 0 0 3px #fff, 0 0 0 5px var(--warn); }
   .hero.attention .avatar { box-shadow:0 0 0 3px #fff, 0 0 0 5px var(--bad); animation:ring 1.4s infinite; }
   @keyframes ring { 50% { box-shadow:0 0 0 3px #fff, 0 0 0 9px rgba(214,69,43,.35) } }
@@ -79,13 +83,13 @@
   .compose { display:flex; gap:8px; }
   .compose input { flex:1; min-width:0; border:1px solid var(--line); background:var(--sunk); border-radius:99px; padding:11px 16px; font:inherit; color:var(--ink); outline:none; }
   .compose input:focus { border-color:var(--teal); background:#fff; }
-  .compose button { border:0; border-radius:99px; background:var(--teal); color:#fff; font:600 14px Inter, sans-serif; padding:0 18px; cursor:pointer; }
+  .compose button { border:0; border-radius:99px; background:linear-gradient(135deg, #1a857d, #13706a); color:#fff; font:600 14px Inter, sans-serif; padding:0 18px; cursor:pointer; }
   .compose button:disabled { opacity:.5; }
   .quick { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
   .quick button { border:1px solid var(--line); background:#fff; border-radius:99px; padding:6px 11px; font:500 12.5px Inter, sans-serif; color:var(--ink2); cursor:pointer; }
   .quick button:hover { border-color:var(--teal); color:var(--teal); }
   .sent { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
-  .bubble { align-self:flex-end; max-width:85%; background:var(--teal); color:#fff; padding:8px 12px; border-radius:16px 16px 4px 16px; font-size:14px; }
+  .bubble { align-self:flex-end; max-width:85%; background:linear-gradient(135deg, #1a857d, #13706a); color:#fff; padding:8px 12px; border-radius:16px 16px 4px 16px; font-size:14px; }
   .bubble small { display:block; font-size:11px; opacity:.8; margin-top:2px; text-align:right; }
 
   .feed { list-style:none; margin:0; padding:0; }

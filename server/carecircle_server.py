@@ -14,6 +14,7 @@ plus the raw data, so an agent can reason over it.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from datetime import datetime, timedelta
@@ -292,6 +293,15 @@ def prepare_doctor_visit(person: str, days: int = 30) -> dict[str, Any]:
     return {**s, "speech": speech, "card": {"type": "doctor", "title": "Doctor visit brief", **s}}
 
 
+@mcp.resource("carecircle://rules", title="Risk rules")
+def rules_resource() -> dict[str, Any]:
+    """The risk rules CareCircle runs after every dose and check-in (server/rules.py), and which are enabled."""
+    import rules
+    enabled = {r.name for r in rules.enabled_rules()}
+    return {"rules": [{"name": r.name, "description": r.description, "enabled": r.name in enabled}
+                      for r in rules.REGISTRY.values()]}
+
+
 @mcp.resource("carecircle://people/{name}/profile", title="Care profile")
 def profile_resource(name: str) -> dict[str, Any]:
     """Profile, family circle and active medications for one person."""
@@ -380,7 +390,16 @@ def _fmt_dt(iso: str) -> str:
 # ------------------------------------------------------------------ HTTP: site, family app, simulator API
 
 WEB_DIR = Path(__file__).parent.parent / "web"
-PERSON = os.environ.get("CARECIRCLE_PERSON", "Margaret")
+def _household_person() -> str:
+    """Default person: CARECIRCLE_PERSON, else the name in the household config, else Margaret."""
+    path = Path(os.environ.get("CARECIRCLE_HOUSEHOLD", Path(__file__).parent.parent / "config" / "household.json"))
+    try:
+        return json.loads(path.read_text())["person"]["name"].strip().title()
+    except Exception:
+        return "Margaret"
+
+
+PERSON = os.environ.get("CARECIRCLE_PERSON") or _household_person()
 
 
 async def _json(request: Request) -> dict:

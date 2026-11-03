@@ -5,8 +5,9 @@ memory and the judgment to look after an older adult who lives alone. Margaret, 
 always has. CareCircle remembers her medicines, how she feels and when her pills run low, reminds her at the right
 time, and **decides on its own** when her daughter and son need to know.
 
-> Built for **Build, Ship, Shape: Amazon Developer Hackathon**: **Alexa+ track** (self-hosted MCP server and a
-> simulated Alexa+ experience), plus the **AWS Builder** and **Open Source** mini challenges.
+**Live demo:** https://carecircle-9d2k.onrender.com · **MCP endpoint:** `https://carecircle-9d2k.onrender.com/mcp`
+
+[![tests](https://github.com/hasini0/carecircle/actions/workflows/tests.yml/badge.svg)](https://github.com/hasini0/carecircle/actions/workflows/tests.yml)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/hasini0/carecircle)
 
@@ -31,7 +32,7 @@ assistant is already in the kitchen. It needs memory, timing and judgment.
 | "How's Mom been this week?" | `get_wellbeing_summary` | Adherence %, mood trend and alerts as a spoken summary plus a card |
 | "Let Priya know I'd love a call" | `alert_family` | Messages just Priya |
 
-### The judgment (risk engine, `server/store.py`)
+### The judgment (risk rules, `server/rules.py`)
 
 After every dose and check-in, CareCircle decides by itself whether to escalate:
 
@@ -44,7 +45,8 @@ After every dose and check-in, CareCircle decides by itself whether to escalate:
 | A medicine with 5 days of supply or less | low | one person |
 
 The same trigger is de-duplicated for 6 hours so families aren't spammed. Everything persists in SQLite, so the
-memory survives sessions, devices and restarts.
+memory survives sessions, devices and restarts. Each rule is a small plug-in function, and new ones can be added
+without touching the engine (see [Extend it](#extend-it)).
 
 ## MCP surface
 
@@ -54,7 +56,7 @@ memory survives sessions, devices and restarts.
 - **MCP Apps extension** (`io.modelcontextprotocol/ui`): `show_care_dashboard` → `ui://carecircle/dashboard.html`
   (`text/html;profile=mcp-app`). The simulator is a minimal MCP Apps host: it reads the resource and posts the
   tool result into a sandboxed iframe (`ui/notifications/tool-result`).
-- **Resource template:** `carecircle://people/{name}/profile`
+- **Resources:** `carecircle://people/{name}/profile` (template) and `carecircle://rules` (the active risk rules)
 - **Prompt:** `morning_routine`
 - Every tool returns `speech` (what Alexa says), `card` (what a screen shows) and structured data.
 - DNS-rebinding protection stays on in production: only localhost and the deployed hostname are accepted.
@@ -76,15 +78,16 @@ Then open **http://localhost:8000**. The live demo page shows three things side 
 The **demo clock** buttons (8 AM / 1 PM / 8 PM) shift CareCircle's clock so reminders fire on cue. **Reset demo**
 restores a fresh week of history.
 
-MCP endpoint: `http://localhost:8000/mcp`
+MCP endpoint: `http://127.0.0.1:8000/mcp`. Use `127.0.0.1` rather than `localhost` for MCP clients: some
+resolve `localhost` to IPv6 first, while the server listens on IPv4.
 
 ```bash
-npx @modelcontextprotocol/inspector     # connect to http://localhost:8000/mcp (Streamable HTTP)
+npx @modelcontextprotocol/inspector     # connect to http://127.0.0.1:8000/mcp (Streamable HTTP)
 ```
 
 ```python
 from mcp import Client
-async with Client("http://localhost:8000/mcp") as c:
+async with Client("http://127.0.0.1:8000/mcp") as c:
     r = await c.call_tool("whats_next", {"person": "Margaret"})
     print(r.structured_content["speech"])
 ```
@@ -116,16 +119,45 @@ hostname is picked up automatically.
 Whichever brain runs, every action is an MCP `tools/call`. Force one with `CARECIRCLE_BRAIN=bedrock|anthropic|local`.
 Optional SMS/email to family through **Amazon SNS**: set `CARECIRCLE_SNS_TOPIC_ARN`. Without it, alerts go to `data/outbox.jsonl`.
 
+## Extend it
+
+CareCircle is built from small registered pieces, so most new features are one function in one file:
+
+| I want to… | Add |
+|---|---|
+| Watch for a new kind of risk | an `@rule` function in `server/rules.py` |
+| Send alerts somewhere new (Telegram, WhatsApp, Slack…) | an `@channel` in `server/notify.py`, or just set `CARECIRCLE_WEBHOOK_URL` |
+| Understand a new spoken request | an `@intent` in `simulator/agent.py` |
+| Give the assistant a new ability | an `@mcp.tool` in `server/carecircle_server.py` |
+| Demo a different family | edit `config/household.json` (no code) |
+
+Step-by-step examples: [docs/EXTENDING.md](docs/EXTENDING.md). Rules can be switched off with
+`CARECIRCLE_DISABLED_RULES=poor_sleep,refills`.
+
+## Tests
+
+```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q
+```
+
+They cover the risk rules (including plugging in and disabling a custom rule), alert de-duplication and routing,
+custom alert channels, the demo clock, supply countdown and voice intent routing. GitHub Actions runs them on every push.
+
 ## Project layout
 
 ```
-server/carecircle_server.py   MCP server: 15 tools, MCP App, resource, prompt, website + APIs (one process)
-server/store.py               SQLite memory, risk engine, reminders, refills, messages, doctor brief
-server/notify.py              family alert delivery (outbox / Amazon SNS)
+server/carecircle_server.py   MCP server: 15 tools, MCP App, resources, prompt, website + APIs (one process)
+server/rules.py               risk rules: a registry of small @rule functions
+server/store.py               SQLite memory, reminders, refills, messages, doctor brief
+server/notify.py              alert channels: outbox, webhook, Amazon SNS (@channel registry)
 server/ui/dashboard.html      family app, also served as the MCP App resource
-simulator/agent.py            Alexa+ agent: MCP client + Bedrock / Anthropic / local brain
+simulator/agent.py            voice agent: MCP client + @intent registry / Bedrock / Anthropic brain
 web/index.html                live demo: Echo Show simulator, family phone, MCP inspector
-scripts/seed_demo.py          demo persona + a week of history
+config/household.json         the demo household: person, family, medicines, appointments
+scripts/seed_demo.py          seeds the household + a week of history
+tests/                        pytest suite
+docs/EXTENDING.md             how to add rules, channels, intents, tools, households
 render.yaml, Dockerfile       deployment
 ```
 
@@ -133,8 +165,7 @@ render.yaml, Dockerfile       deployment
 
 - CareCircle is a reminder and family-communication tool, **not a medical device**. It doesn't diagnose, and a
   red-flag alert tells family; it doesn't call emergency services.
-- The Alexa+ device is simulated (the hackathon's official simulation path). The MCP server is real and works with
-  any MCP 2025-11-25 client.
+- The Alexa+ device is simulated in the browser. The MCP server is real and works with any MCP 2025-11-25 client.
 - The demo is a single household with no sign-in, and the public demo is shared by everyone who opens it. Next
   step: OAuth 2.1 per household (supported by the MCP SDK).
 

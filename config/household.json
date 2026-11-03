@@ -1,0 +1,27 @@
+{
+  "person": {
+    "name": "Margaret",
+    "age": 78,
+    "notes": "Lives alone. Type 2 diabetes, high blood pressure. Loves gardening."
+  },
+  "family": [
+    {"name": "Priya", "relation": "daughter", "contact": "+1-555-0142"},
+    {"name": "Dev", "relation": "son", "contact": "+1-555-0177"}
+  ],
+  "medications": [
+    {"name": "Metformin", "dose": "500 mg", "times": ["08:00", "20:00"], "purpose": "blood sugar", "pills_left": 12},
+    {"name": "Lisinopril", "dose": "10 mg", "times": ["08:00"], "purpose": "blood pressure", "pills_left": 24},
+    {"name": "Vitamin D", "dose": "1000 IU", "times": ["13:00"], "purpose": "bones", "pills_left": 40}
+  ],
+  "appointments": [
+    {"in_days": 1, "time": "10:30", "title": "Dr. Chen, diabetes check-up", "location": "Riverside Clinic"}
+  ],
+  "demo_history": {
+    "days": 6,
+    "adherence": 0.88,
+    "checkin_notes": [
+      "Slept well, did some gardening", "A bit tired today", "Feeling good, Priya called",
+      "Knee is sore after the walk", "Lovely day, made soup", "Fine, quiet day"
+    ]
+  }
+}
